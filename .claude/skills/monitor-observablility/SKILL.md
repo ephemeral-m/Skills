@@ -1,5 +1,5 @@
 ---
-name: monitoring-observability
+name: monitor-observablility
 description: 为生产应用实现全面的监控、日志、指标、追踪和告警，确保系统可靠性和快速事件响应。当用户需要设置应用监控、实现结构化日志、创建指标和仪表板、设置告警、实现分布式追踪、监控性能、追踪错误或构建可观测性系统时使用此 skill。
 ---
 

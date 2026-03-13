@@ -1,5 +1,5 @@
 ---
-name: document-processing-docx
+name: document-ar-docx
 description: 使用 docx 或 mammoth.js 等库程序化处理、解析、创建和操作 Microsoft Word (.docx) 文档，实现文档生成和数据提取。当用户需要从模板生成 Word 文档、从 .docx 文件提取文本和格式、创建报告和发票、解析简历和表单、将 Word 转换为 HTML、创建邮件合并文档或自动化文档工作流时使用此 skill。
 ---
 

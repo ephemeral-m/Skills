@@ -1,33 +1,12 @@
 {
-  "skills": {
-    "my-skill": {
-      "description": "示例自定义 skill",
-      "prompt": "这是一个自定义 skill 的提示内容。您可以在这里定义特定的任务流程。"
-    },
-    "commit": {
-      "description": "创建 git commit",
-      "prompt": "分析当前的更改并创建一个合适的 commit message，然后执行 git commit。"
-    }
-  },
   "hooks": {
-    "PreToolUse": [
+    "SessionStart": [
       {
-        "matcher": "Bash",
+        "matcher": "*",
         "hooks": [
           {
-            "type": "command",
-            "command": "echo '[Hook] 即将执行 Bash 命令'"
-          }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "Write",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "echo '[Hook] 文件已写入: $CLAUDE_FILE_PATH'"
+            "type": "prompt",
+            "prompt": "请检查是否需要同步项目文件到远程服务器：\n\n1. 首先检查 .vscode/sftp.json 配置文件是否存在\n2. 如果配置文件已存在，询问用户是否要执行同步操作\n3. 如果配置文件不存在，询问用户是否要配置 SFTP 同步\n4. 如果用户同意，调用 /sync 命令进行配置和同步\n\n如果用户拒绝或跳过，则不执行任何操作。"
           }
         ]
       }
