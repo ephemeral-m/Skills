@@ -1,0 +1,36 @@
+{
+  "skills": {
+    "my-skill": {
+      "description": "示例自定义 skill",
+      "prompt": "这是一个自定义 skill 的提示内容。您可以在这里定义特定的任务流程。"
+    },
+    "commit": {
+      "description": "创建 git commit",
+      "prompt": "分析当前的更改并创建一个合适的 commit message，然后执行 git commit。"
+    }
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '[Hook] 即将执行 Bash 命令'"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo '[Hook] 文件已写入: $CLAUDE_FILE_PATH'"
+          }
+        ]
+      }
+    ]
+  }
+}
