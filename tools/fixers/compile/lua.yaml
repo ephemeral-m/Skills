@@ -1,0 +1,343 @@
+# Lua 编译/运行时错误自动修复规则
+# OpenResty Lua 开发专用
+
+version: "1.0"
+language: lua
+
+rules:
+  # ============================================================================
+  # 语法错误
+  # ============================================================================
+  - id: syntax_unexpected_symbol
+    pattern: "([^:]+):(\\d+): unexpected symbol near '([^']+)'"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        语法错误: $1:$2 意外符号 '$3'
+        检查括号匹配或缺少操作符
+
+  - id: syntax_expected
+    pattern: "([^:]+):(\\d+): '([^']+)' expected"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        语法错误: $1:$2 期望 '$3'
+        检查是否缺少关键字或符号
+
+  - id: syntax_end_expected
+    pattern: "([^:]+):(\\d+): 'end' expected"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        缺少 'end': $1:$2
+        function/if/for/while 需要用 end 闭合
+
+  - id: syntax_unclosed_string
+    pattern: "([^:]+):(\\d+): unfinished string"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        字符串未闭合: $1:$2
+        检查引号是否匹配，长字符串用 [[ ]]
+
+  # ============================================================================
+  # 变量错误
+  # ============================================================================
+  - id: undefined_global
+    pattern: "attempt to index global '([^']+)' \\(a nil value\\)"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        未定义全局变量: $1
+        OpenResty 中避免全局变量，使用 local 声明
+
+  - id: nil_index
+    pattern: "attempt to index (?:local )?([^ ]+) \\(a nil value\\)"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        空值索引: $1 为 nil
+        检查: if var then ... end
+
+  - id: nil_concat
+    pattern: "attempt to concatenate a nil value"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        字符串拼接时遇到 nil
+        使用 tostring(var) 或 or "" 处理空值
+
+  - id: nil_call
+    pattern: "attempt to call a nil value"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        调用了 nil 值
+        检查函数是否存在: if func then func() end
+
+  # ============================================================================
+  # 类型错误
+  # ============================================================================
+  - id: type_call
+    pattern: "attempt to call global '([^']+)' \\(a ([^)]+) value\\)"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        类型调用错误: $1 是 $2
+        检查变量是否被意外覆盖
+
+  - id: type_arithmetic
+    pattern: "attempt to perform arithmetic on a ([^ ]+) value"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        算术运算类型错误: $1
+        使用 tonumber() 转换
+
+  - id: type_compare
+    pattern: "attempt to compare ([^ ]+) with ([^ ]+)"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        比较类型不匹配: $1 与 $2
+        确保比较双方类型一致
+
+  - id: type_length
+    pattern: "attempt to get length of a ([^ ]+) value"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        获取长度类型错误: $1
+        # 操作符只能用于 string 和 table
+
+  # ============================================================================
+  # 模块错误
+  # ============================================================================
+  - id: module_not_found
+    pattern: "module '([^']+)' not found"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        模块未找到: $1
+        检查 lua_package_path 配置或使用 resty安装
+
+  - id: module_loading
+    pattern: "error loading module '([^']+)'"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        模块加载错误: $1
+        检查模块语法或依赖
+
+  # ============================================================================
+  # OpenResty 上下文错误
+  # ============================================================================
+  - id: api_context_error
+    pattern: "API disabled in the context of ([^ ]+)"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        API 上下文错误: 在 $1 中禁用
+        正确的上下文:
+        - ngx.req.*: rewrite, access, content
+        - ngx.location.capture: rewrite, access, content
+        - ngx.exit: 所有阶段
+
+  - id: cosocket_in_handler
+    pattern: "cosocket not allowed in this context"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        cosocket 上下文错误
+        允许: rewrite_by_lua, access_by_lua, content_by_lua
+        禁止: set_by_lua, log_by_lua, header_filter_by_lua
+
+  - id: lua_entry_abort
+    pattern: "lua entry thread aborted"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        Lua 入口线程中止
+        常见原因:
+        1. 未捕获的错误
+        2. 协程超时 (lua_socket_timeout)
+        3. 内存不足
+
+  # ============================================================================
+  # Cosocket 错误
+  # ============================================================================
+  - id: cosocket_connected
+    pattern: "cosocket already connected"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        cosocket 已连接
+        使用前检查: if not sock then ... end
+
+  - id: cosocket_closed
+    pattern: "cosocket already closed"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        cosocket 已关闭
+        重新创建连接: sock = ngx.socket.tcp()
+
+  - id: cosocket_timeout
+    pattern: "timeout"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        cosocket 超时
+        设置: sock:settimeout(1000) -- 1秒
+
+  # ============================================================================
+  # ngx_lua API 错误
+  # ============================================================================
+  - id: ngx_bad_argument
+    pattern: "bad argument #(%d+) to '([^']+)'"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        参数错误: $2 第 $1 个参数
+        检查参数类型和是否为 nil
+
+  - id: ngx_null_value
+    pattern: "expected ([^,]+), got nil"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        期望 $1，得到 nil
+        检查变量初始化或函数返回值
+
+  - id: ngx_capture_error
+    pattern: "location capture error"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        location capture 错误
+        检查: ngx.location.capture("/path")
+
+  # ============================================================================
+  # 共享字典错误
+  # ============================================================================
+  - id: shm_not_found
+    pattern: "shared dict \"([^\"]+)\" not found"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        共享字典未定义: $1
+        nginx.conf 添加: lua_shared_dict $1 10m;
+
+  - id: shm_capacity
+    pattern: "no memory"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        共享字典内存不足
+        增大: lua_shared_dict name 100m;
+
+  - id: shm_locked
+    pattern: "busy"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        共享字典被锁定
+        考虑使用 add/set 的 exptime 参数
+
+  # ============================================================================
+  # 正则表达式错误
+  # ============================================================================
+  - id: regex_error
+    pattern: "invalid regular expression"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        正则表达式无效
+        使用 ngx.re.match(str, regex, "jo") 进行测试
+
+  - id: regex_pcre
+    pattern: "pcre_compile\\(\\) failed"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        PCRE 编译失败
+        检查正则语法，转义特殊字符
+
+  # ============================================================================
+  # JSON 错误
+  # ============================================================================
+  - id: json_encode
+    pattern: "cannot serialise ([^:]+): ([^ ]+)"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        JSON 编码失败: $1 $2
+        cjson 无法编码 function/thread/lightuserdata
+
+  - id: json_decode
+    pattern: "Expected value but found invalid token"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        JSON 解码失败
+        检查 JSON 格式，注意尾部逗号和注释
+
+  # ============================================================================
+  # 常见警告
+  # ============================================================================
+  - id: warn_unused_variable
+    pattern: "unused variable '([^']+)'"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        未使用变量: $1
+        移除或使用 _ 忽略: local _ = func()
+
+  - id: warn_unused_function
+    pattern: "unused function"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        未使用函数
+        检查是否需要导出或移除
+
+  - id: warn_global_variable
+    pattern: "writing a global lua variable '([^']+)'"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        写入全局变量: $1
+        OpenResty 推荐使用 local，避免全局污染

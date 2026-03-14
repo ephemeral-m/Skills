@@ -1,0 +1,12 @@
+{
+  "command": "build",
+  "module": "all",
+  "exit_code": 2,
+  "timestamp": "2026-03-14T18:50:41.794339",
+  "duration": 1.0625219345092773,
+  "error_type": "compile",
+  "success": false,
+  "errors": [],
+  "output": "\u001b[0;34m[INFO]\u001b[0m 閰嶇疆...\nplatform: msys (msys)\ncp -rp bundle/ build\ncd build\ncd LuaJIT-2.1-20251030\ngmake TARGET_STRIP=@: CCDEBUG=-g XCFLAGS='-DLUAJIT_ENABLE_LUA52COMPAT' CC=cc PREFIX=/d/m30020610/WorkSpace/Skills/build/openresty/luajit\n==== Building LuaJIT 2.1 ====\nD:/m30020610/Programs/Perl/c/bin/gmake.exe -C src\ngmake[1]: Entering directory 'D:/m30020610/WorkSpace/Skills/src/build/LuaJIT-2.1-20251030/src'\ngmake[1]: Leaving directory 'D:/m30020610/WorkSpace/Skills/src/build/LuaJIT-2.1-20251030/src'\n",
+  "error_output": "WARNING: ngx_devel_kit is automatically disabled because ngx_http_rewrite_module is disabled.\nWARNING: ngx_http_set_misc_module is automatically disabled because ngx_devel_kit_module is disabled.\nWARNING: ngx_http_iconv_module is automatically disabled because ngx_devel_kit_module is disabled.\nWARNING: ngx_http_lz_session_module is automatically disabled because ngx_devel_kit_module is disabled.\nWARNING: ngx_http_form_input_module is automatically disabled because ngx_devel_kit_module is disabled.\nWARNING: ngx_http_array_var_module is automatically disabled because ngx_devel_kit_module is disabled.\nWARNING: ngx_http_encrypted_session_module is automatically disabled because ngx_devel_kit_module is disabled.\nCan't exec \"cc\": No such file or directory at ./configure line 719.\nprocess_begin: CreateProcess(NULL, cc -g -O2 -fomit-frame-pointer -Wall -DLUAJIT_ENABLE_LUA52COMPAT -D_FILE_OFFSET_BITS=64 -D_LARGEFILE_SOURCE -U_FORTIFY_SOURCE -E lj_arch.h -dM, ...) failed.\nmakefile:236: pipe: Bad file descriptor\nmakefile:273: *** Unsupported target architecture.  Stop.\ngmake: *** [makefile:127: default] Error 2\nERROR: failed to run command: gmake TARGET_STRIP=@: CCDEBUG=-g XCFLAGS='-DLUAJIT_ENABLE_LUA52COMPAT' CC=cc PREFIX=/d/m30020610/WorkSpace/Skills/build/openresty/luajit\n\u001b[0;31m[ERROR]\u001b[0m 鍛戒护澶辫触 (exit 2): ./configure --prefix=/d/m30020610/WorkSpace/Skills/build/openresty --with-http_ssl_module --with-http_v2_module --with-http_v3_module --with-stream --with-stream_ssl_module --with-stream_ssl_preread_module --with-http_realip_module --with-http_gzip_static_module --with-http_stub_status_module --with-http_auth_request_module --without-http_rewrite_module\n"
+}

@@ -1,0 +1,113 @@
+# Dev CLI 配置文件
+# OpenResty 工程开发框架配置
+
+# 项目信息
+project:
+  name: ${PROJECT_NAME:-Skills}
+  languages:
+    - c
+    - lua
+
+# 远程机器配置
+remote:
+  host: 192.168.168.218
+  port: 22
+  user: m30020610
+  workdir: /home/m30020610/Skills
+
+# 模块定义
+modules:
+  openresty:
+    language: c
+    path: src
+    build:
+      command: make -j4
+      remote: default
+      artifacts:
+        - build/nginx
+        - build/libopenresty.so
+    test:
+      command: make test
+      remote: default
+
+  lua-plugins:
+    language: lua
+    path: plugins
+    build:
+      command: luac -p *.lua
+      local: true
+    test:
+      command: busted *.spec.lua
+      local: true
+
+# 命令映射
+commands:
+  build: ./tools/scripts/build.sh
+  test: ./tools/scripts/test.sh
+  verify: ./tools/scripts/verify.sh
+  clean: ./tools/scripts/clean.sh
+
+# 默认命令
+defaults:
+  build:
+    command: make -j4
+    remote: default
+  test:
+    command: make test
+    remote: default
+  clean:
+    command: make clean
+
+# 错误解析规则 (C/Lua)
+error_patterns:
+  compile:
+    - pattern: "([^:]+):(\\d+):(\\d+): error: (.+)"
+      type: compile_error
+      fix_hint: "检查语法错误或缺失声明"
+    - pattern: "([^:]+):(\\d+): error: (.+)"
+      type: compile_error
+      fix_hint: "检查语法错误"
+    - pattern: "undefined reference to `([^']+)'"
+      type: link_error
+      fix_hint: "检查链接库配置"
+    - pattern: "fatal error: ([^:]+): No such file or directory"
+      type: include_error
+      fix_hint: "检查头文件路径"
+    - pattern: "error: '([^']+)' was not declared"
+      type: undeclared_error
+      fix_hint: "检查变量/函数声明"
+  runtime:
+    - pattern: "Segmentation fault"
+      type: segfault
+      fix_hint: "检查空指针访问或数组越界"
+    - pattern: "nginx: \\[emerg\\]"
+      type: nginx_error
+      fix_hint: "检查 Nginx 配置"
+    - pattern: "lua entry thread aborted"
+      type: lua_error
+      fix_hint: "检查 Lua 代码逻辑"
+  test:
+    - pattern: "\\[  FAILED  \\] ([^(]+)"
+      type: test_failure
+      fix_hint: "检查测试断言"
+
+# 修复策略
+fix:
+  max_attempts: 3
+  priority:
+    - auto
+    - module
+    - ai
+
+# 同步配置
+sync:
+  exclude:
+    - .git/
+    - tools/results/
+    - tools/state/
+    - .idea/
+    - .vscode/
+    - "*.o"
+    - "*.a"
+    - "*.so"
+    - build/

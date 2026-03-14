@@ -1,0 +1,344 @@
+# C/Nginx 编译错误自动修复规则
+# OpenResty/Nginx 开发专用
+
+version: "1.0"
+language: c
+
+rules:
+  # ============================================================================
+  # 链接错误
+  # ============================================================================
+  - id: link_undefined_reference
+    pattern: "undefined reference to `([^']+)'"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        缺少链接库: $1
+        检查 Makefile 或 configure 参数:
+        - SSL: --with-openssl=/path/to/openssl
+        - PCRE: --with-pcre=/path/to/pcre
+        - LuaJIT: 检查 LUAJIT_LIB 和 LUAJIT_INC
+
+  - id: link_multiple_definition
+    pattern: "multiple definition of `([^']+)'"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        符号重复定义: $1
+        Nginx 模块开发中常见原因:
+        1. 在 .h 文件中定义了非 static 函数/变量
+        2. 同一模块被多次编译链接
+        解决: 使用 static 限定符或移至 .c 文件
+
+  - id: link_cannot_find
+    pattern: "cannot find -l([^ ]+)"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        找不到库文件: lib$1
+        安装依赖:
+        - ssl: apt install libssl-dev
+        - pcre: apt install libpcre3-dev
+        - z: apt install zlib1g-dev
+
+  # ============================================================================
+  # 头文件错误
+  # ============================================================================
+  - id: include_not_found
+    pattern: "fatal error: ([^:]+): No such file or directory"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        头文件未找到: $1
+        Nginx 开发常用头文件路径:
+        - nginx.h, ngx_config.h: src/core
+        - ngx_http.h: src/http
+        - OpenSSL: /usr/include/openssl
+
+  - id: include_nginx_missing
+    pattern: "fatal error: ngx_[^:]+\\.h"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        Nginx 头文件未找到
+        检查:
+        1. --add-module 路径是否正确
+        2. nginx 源码目录是否完整
+
+  # ============================================================================
+  # 声明错误
+  # ============================================================================
+  - id: undeclared_identifier
+    pattern: "error: '([^']+)' undeclared"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        标识符未声明: $1
+        Nginx 常见遗漏:
+        - ngx_str_t: 包含 ngx_string.h
+        - ngx_http_request_t: 包含 ngx_http.h
+        - ngx_log_t: 包含 ngx_log.h
+
+  - id: implicit_declaration
+    pattern: "warning: implicit declaration of function '([^']+)'"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        隐式声明函数: $1
+        添加对应头文件，或在文件顶部声明
+
+  - id: incompatible_implicit
+    pattern: "error: incompatible implicit declaration of built-in function '([^']+)'"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        内置函数隐式声明不兼容: $1
+        添加头文件: #include <string.h> 或 <stdlib.h>
+
+  # ============================================================================
+  # 类型错误
+  # ============================================================================
+  - id: type_incompatible_pointer
+    pattern: "warning: (?:incompatible |assignment from )?incompatible pointer types"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        指针类型不兼容
+        Nginx 常见问题:
+        - ngx_str_t* 与 char* 混用，使用 ngx_str_set/ngx_str_null
+        - u_char* 与 char* 混用，使用 (u_char*) 强制转换
+
+  - id: type_integer_pointer
+    pattern: "warning: (?:initialization|assignment) makes (?:pointer|integer) from (?:integer|pointer) without a cast"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        整数与指针转换未显式转换
+        Nginx 中常见的 u_char* 与 size_t 转换需要显式类型转换
+
+  - id: type_discards_qualifiers
+    pattern: "warning: (?:initialization|assignment|return) discards '([^']+)' qualifier"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        丢弃限定符: $1
+        检查 const 正确性，Nginx API 常返回 const 指针
+
+  - id: type_conflicting_types
+    pattern: "error: conflicting types for '([^']+)'"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        类型冲突: $1
+        函数声明与定义不一致，检查头文件声明
+
+  # ============================================================================
+  # 语法错误
+  # ============================================================================
+  - id: syntax_expected_before
+    pattern: "error: expected '([^']+)' before '([^']+)'"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        语法错误: 期望 $1 但在 $2 之前
+        检查上一行是否缺少分号或括号
+
+  - id: syntax_undeclared_struct
+    pattern: "error: dereferencing pointer to incomplete type"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        解引用不完整类型指针
+        需要包含定义该结构体的头文件
+
+  # ============================================================================
+  # Nginx 特有错误
+  # ============================================================================
+  - id: nginx_module_error
+    pattern: "ngx_http_([^_]+)_module"
+    severity: info
+    fix:
+      type: suggest
+      message: |
+        Nginx HTTP 模块上下文
+        确保正确初始化: ngx_http_module_t 结构体
+
+  - id: nginx_pool_error
+    pattern: "ngx_palloc|ngx_pcalloc"
+    severity: info
+    fix:
+      type: suggest
+      message: |
+        Nginx 内存池分配
+        使用 ngx_palloc(r->pool, size) 从请求池分配
+
+  - id: nginx_str_error
+    pattern: "ngx_str"
+    severity: info
+    fix:
+      type: suggest
+      message: |
+        ngx_str_t 字符串操作
+        - 初始化: ngx_string("text") 或 ngx_null_string
+        - 设置: ngx_str_set(&str, "text")
+        - 格式化: ngx_snprintf(buf, len, "%V", &str)
+
+  # ============================================================================
+  # PCRE 相关
+  # ============================================================================
+  - id: pcre_error
+    pattern: "pcre\\.h: No such file"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        PCRE 开发包未安装
+        安装: apt install libpcre3-dev
+        或使用: --with-pcre=/path/to/pcre
+
+  - id: pcre2_error
+    pattern: "PCRE2"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        PCRE2 版本不兼容
+        Nginx 默认使用 PCRE1，如需 PCRE2 请使用兼容补丁
+
+  # ============================================================================
+  # OpenSSL 相关
+  # ============================================================================
+  - id: openssl_error
+    pattern: "openssl/[^:]+\\.h: No such file"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        OpenSSL 开发包未安装
+        安装: apt install libssl-dev
+        或使用: --with-openssl=/path/to/openssl
+
+  - id: openssl_version_error
+    pattern: "OpenSSL version mismatch"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        OpenSSL 版本不匹配
+        确保编译和运行时使用相同版本的 OpenSSL
+
+  # ============================================================================
+  # 常见警告
+  # ============================================================================
+  - id: warn_unused_variable
+    pattern: "warning: unused variable '([^']+)'"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        未使用变量: $1
+        Nginx 风格: 使用 (void)$1; 消除警告
+
+  - id: warn_unused_parameter
+    pattern: "warning: unused parameter '([^']+)'"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        未使用参数: $1
+        Nginx 模块开发中常见，使用 (void)$1; 或加注释
+
+  - id: warn_unused_function
+    pattern: "warning: '([^']+)' defined but not used"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        未使用函数: $1
+        添加 static 或移除
+
+  - id: warn_set_but_not_used
+    pattern: "warning: variable '([^']+)' set but not used"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        变量已赋值但未使用: $1
+        检查逻辑是否正确，或添加 (void)$1;
+
+  - id: warn_pointer_arith
+    pattern: "warning: pointer of type 'void \\*' used in arithmetic"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        void 指针算术运算
+        先转换为具体类型指针: ((u_char*)p) + offset
+
+  - id: warn_discarded_qualifiers
+    pattern: "warning: passing argument [0-9]+ of '([^']+)' discards '([^']+)' qualifier"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        参数传递丢弃 $2 限定符
+        函数 $1 需要非 const 参数，检查是否应该保持 const
+
+  - id: warn_format
+    pattern: "warning: format '([^']+)' expects argument of type '([^']+)'"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        格式字符串参数类型不匹配
+        Nginx 格式化使用 %V (ngx_str_t*), %uD (uint32_t), %z (size_t)
+
+  - id: warn_strict_aliasing
+    pattern: "warning: dereferencing type-punned pointer"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        严格别名违规
+        使用 union 或 memcpy 替代直接类型转换
+
+  - id: warn_implicit_fallthrough
+    pattern: "warning: statement may fall through"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        switch 穿透警告
+        添加 /* fall through */ 注释或 break
+
+  - id: warn_address
+    pattern: "warning: the address of '([^']+)' will always evaluate as 'true'"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        地址永远为真
+        可能是想检查内容而非地址，去掉 & 运算符
+
+  - id: warn_return_type
+    pattern: "warning: control reaches end of non-void function"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        非 void 函数缺少 return
+        Nginx 模块函数通常返回 NGX_OK 或 NGX_ERROR
