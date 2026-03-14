@@ -1,3 +1,4 @@
+claude code配置
 {
   "env": {
     "ANTHROPIC_AUTH_TOKEN": "sk-sp-ca6b2eeadf984b1cb68ab9d75a39ae8c",
