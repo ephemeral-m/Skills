@@ -8,6 +8,11 @@
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
 
+# 支持通过环境变量指定模块路径
+if [[ -n "$MODULE_PATH" ]]; then
+    SRC_DIR="$PROJECT_ROOT/$MODULE_PATH"
+fi
+
 # 参数
 JOBS=$(get_jobs)
 DEBUG=false
@@ -42,13 +47,14 @@ OPTS=(
 cd "$SRC_DIR" || { log_error "源码目录不存在: $SRC_DIR"; exit 1; }
 
 log_info "配置..."
+chmod +x ./configure 2>/dev/null || true
 run ./configure "${OPTS[@]}"
 
 log_info "编译 (并行: $JOBS)..."
 run make -j"$JOBS"
 
 log_info "安装..."
-chmod 755 "$SRC_DIR/build/install"
+chmod 755 "$SRC_DIR/build/install" 2>/dev/null || true
 run make install
 
 log_success "完成: $NGINX_BIN"
