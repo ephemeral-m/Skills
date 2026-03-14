@@ -1,0 +1,7 @@
+.git
+build
+.vscode
+.idea
+*.zip
+*.jar
+*.tar.gz
