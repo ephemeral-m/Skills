@@ -1,0 +1,18 @@
+{
+  "env": {
+    "ANTHROPIC_AUTH_TOKEN": "sk-sp-ca6b2eeadf984b1cb68ab9d75a39ae8c",
+    "ANTHROPIC_BASE_URL": "https://coding.dashscope.aliyuncs.com/apps/anthropic",
+    "ANTHROPIC_MODEL": "glm-5"
+  },
+  "extraKnownMarketplaces": {
+    "claude-plugins-official": {
+      "source": {
+        "source": "git",
+        "url": "https://github.com/anthropics/claude-plugins-official.git"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "skill-creator@claude-plugins-official": true
+  }
+}
