@@ -5,3 +5,7 @@ build
 *.zip
 *.jar
 *.tar.gz
+src/build
+src/patch
+src/util
+test/test_nginx

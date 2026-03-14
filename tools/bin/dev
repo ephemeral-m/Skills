@@ -25,6 +25,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
+# 尝试导入 paramiko（用于密码认证）
+try:
+    import paramiko
+    HAS_PARAMIKO = True
+except ImportError:
+    HAS_PARAMIKO = False
+
 # 路径配置
 TOOLS_DIR = Path(__file__).parent.parent.resolve()
 PROJECT_ROOT = TOOLS_DIR.parent.resolve()
@@ -105,6 +112,7 @@ class DevCLI:
         host = remote_config['host']
         port = remote_config.get('port', 22)
         user = remote_config['user']
+        password = remote_config.get('password', '')
         workdir = remote_config['workdir']
 
         log_info(f"同步代码到 {user}@{host}:{workdir}")
@@ -114,17 +122,134 @@ class DevCLI:
             "node_modules", "__pycache__", "build", "*.o", "*.a"
         ])
 
-        rsync_cmd = [
-            "rsync", "-avz", "--delete",
-            *[f"--exclude={p}" for p in exclude_patterns],
-            "-e", f"ssh -p {port} -o StrictHostKeyChecking=no",
-            f"{self.project_root}/",
-            f"{user}@{host}:{workdir}/"
+        # 如果有密码，使用 paramiko 进行传输
+        if password:
+            if not HAS_PARAMIKO:
+                log_error("密码认证需要 paramiko 库，请安装: pip install paramiko")
+                return False
+            return self._sync_with_paramiko(host, port, user, password, workdir, exclude_patterns)
+        else:
+            # 使用公钥认证 + tar + ssh
+            return self._sync_with_ssh_key(host, port, user, workdir, exclude_patterns)
+
+    def _sync_with_paramiko(self, host: str, port: int, user: str, password: str,
+                            workdir: str, exclude_patterns: List[str]) -> bool:
+        """使用 paramiko 进行密码认证的同步"""
+        import tarfile
+        import io
+
+        try:
+            # 建立 SSH 连接
+            ssh = paramiko.SSHClient()
+            ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            ssh.connect(host, port=port, username=user, password=password, timeout=30)
+            log_info("SSH 连接成功")
+
+            # 创建远程目录
+            stdin, stdout, stderr = ssh.exec_command(f"mkdir -p {workdir}")
+            stdout.read()
+
+            # 创建内存中的 tar 包
+            tar_buffer = io.BytesIO()
+            with tarfile.open(fileobj=tar_buffer, mode='w:gz') as tar:
+                for item in self.project_root.iterdir():
+                    # 检查排除规则
+                    if self._should_exclude(item.name, exclude_patterns):
+                        continue
+                    tar.add(item, arcname=item.name)
+
+            tar_data = tar_buffer.getvalue()
+            log_info(f"打包完成: {len(tar_data) / 1024 / 1024:.2f} MB")
+
+            # 通过 SFTP 传输
+            sftp = ssh.open_sftp()
+
+            # 创建临时文件路径
+            remote_temp = f"{workdir}/.sync_temp.tar.gz"
+
+            # 上传 tar 包
+            with io.BytesIO(tar_data) as buf:
+                sftp.putfo(buf, remote_temp)
+
+            log_info("上传完成，正在解压...")
+
+            # 远程解压
+            stdin, stdout, stderr = ssh.exec_command(
+                f"cd {workdir} && tar -xzf .sync_temp.tar.gz && rm -f .sync_temp.tar.gz"
+            )
+            stdout.read()
+            err = stderr.read().decode('utf-8', errors='ignore')
+            if err and "warning" not in err.lower():
+                log_warn(f"解压警告: {err}")
+
+            sftp.close()
+            ssh.close()
+
+            log_success("同步成功")
+            return True
+
+        except paramiko.AuthenticationException:
+            log_error("认证失败：用户名或密码错误")
+            return False
+        except paramiko.SSHException as e:
+            log_error(f"SSH 错误: {e}")
+            return False
+        except Exception as e:
+            log_error(f"同步失败: {e}")
+            return False
+
+    def _should_exclude(self, name: str, patterns: List[str]) -> bool:
+        """检查文件名是否匹配排除规则"""
+        import fnmatch
+        for pattern in patterns:
+            pattern = pattern.rstrip('/')
+            if fnmatch.fnmatch(name, pattern):
+                return True
+        return False
+
+    def _sync_with_ssh_key(self, host: str, port: int, user: str,
+                           workdir: str, exclude_patterns: List[str]) -> bool:
+        """使用公钥认证的同步"""
+        # 构建 tar 排除参数
+        exclude_args = []
+        for p in exclude_patterns:
+            exclude_args.extend(["--exclude", p])
+
+        tar_cmd = ["tar", "-czf", "-"] + exclude_args + ["-C", str(self.project_root), "."]
+        ssh_cmd = [
+            "ssh", "-p", str(port), "-o", "StrictHostKeyChecking=no",
+            f"{user}@{host}",
+            f"mkdir -p {workdir} && tar -xzf - -C {workdir}"
         ]
 
-        result = subprocess.run(rsync_cmd, capture_output=True, text=True)
-        if result.returncode != 0:
-            log_error(f"同步失败: {result.stderr}")
+        log_info("打包并传输...")
+
+        tar_proc = subprocess.Popen(
+            tar_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+
+        ssh_proc = subprocess.Popen(
+            ssh_cmd,
+            stdin=tar_proc.stdout,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+
+        tar_stdout, tar_stderr = tar_proc.communicate()
+        ssh_stdout, ssh_stderr = ssh_proc.communicate()
+
+        if tar_proc.returncode != 0:
+            log_error(f"打包失败: {tar_stderr.decode('utf-8', errors='ignore')}")
+            return False
+
+        if ssh_proc.returncode != 0:
+            error_msg = ssh_stderr.decode('utf-8', errors='ignore')
+            if "Permission denied" in error_msg:
+                log_error("认证失败：请配置公钥认证或在配置中填写密码")
+            else:
+                log_error(f"传输失败: {error_msg}")
             return False
 
         log_success("同步成功")
