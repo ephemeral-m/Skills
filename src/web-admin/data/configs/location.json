@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "updated_at": "2026-03-15T18:00:00",
+  "items": [
+    {
+      "id": "api_proxy",
+      "path": "/api/",
+      "proxy_pass": "http://backend_api",
+      "proxy_set_header": {
+        "Host": "$host",
+        "X-Real-IP": "$remote_addr",
+        "X-Forwarded-For": "$proxy_add_x_forwarded_for",
+        "X-Forwarded-Proto": "$scheme"
+      },
+      "proxy_timeout": {
+        "connect": "60s",
+        "send": "60s",
+        "read": "60s"
+      },
+      "rate_limit": {
+        "enabled": true,
+        "rate": "100r/s",
+        "burst": 50
+      },
+      "plugins": []
+    },
+    {
+      "id": "static_files",
+      "path": "/static/",
+      "root": "/var/www/static",
+      "expires": "30d",
+      "cache_control": "public, max-age=2592000",
+      "plugins": []
+    },
+    {
+      "id": "websocket",
+      "path": "/ws/",
+      "proxy_pass": "http://backend_api",
+      "proxy_http_version": "1.1",
+      "proxy_set_header": {
+        "Upgrade": "$http_upgrade",
+        "Connection": "upgrade",
+        "Host": "$host"
+      },
+      "plugins": []
+    }
+  ]
+}

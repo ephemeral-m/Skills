@@ -1,0 +1,68 @@
+{
+  "version": 1,
+  "updated_at": "2026-03-15T18:00:00",
+  "items": [
+    {
+      "id": "backend_api",
+      "servers": [
+        {
+          "host": "192.168.1.10",
+          "port": 8080,
+          "weight": 3
+        },
+        {
+          "host": "192.168.1.11",
+          "port": 8080,
+          "weight": 2
+        },
+        {
+          "host": "192.168.1.12",
+          "port": 8080,
+          "weight": 1,
+          "backup": true
+        }
+      ],
+      "balance": "least_conn",
+      "keepalive": 32,
+      "health_check": {
+        "enabled": true,
+        "interval": "5s",
+        "fails": 3,
+        "passes": 2,
+        "uri": "/health"
+      }
+    },
+    {
+      "id": "backend_mysql",
+      "servers": [
+        {
+          "host": "192.168.1.20",
+          "port": 3306,
+          "weight": 1
+        },
+        {
+          "host": "192.168.1.21",
+          "port": 3306,
+          "weight": 1
+        }
+      ],
+      "balance": "round_robin"
+    },
+    {
+      "id": "backend_dns",
+      "servers": [
+        {
+          "host": "8.8.8.8",
+          "port": 53,
+          "weight": 1
+        },
+        {
+          "host": "8.8.4.4",
+          "port": 53,
+          "weight": 1
+        }
+      ],
+      "balance": "round_robin"
+    }
+  ]
+}
