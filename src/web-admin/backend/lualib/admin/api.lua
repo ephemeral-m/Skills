@@ -6,40 +6,16 @@ local cjson = require "cjson.safe"
 local config = require "admin.config"
 local monitor = require "admin.monitor"
 local deploy = require "admin.deploy"
+local utils = require "admin.utils"
 
--- CORS 头
-local function set_cors_headers()
-    ngx.header["Access-Control-Allow-Origin"] = "*"
-    ngx.header["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
-    ngx.header["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
-    ngx.header["Access-Control-Max-Age"] = "3600"
-end
-
--- 发送 JSON 响应
-local function send_response(status, data)
-    ngx.status = status
-    set_cors_headers()
-    ngx.header["Content-Type"] = "application/json; charset=utf-8"
-    ngx.say(cjson.encode(data))
-end
-
--- 处理 OPTIONS 预检请求
-local function handle_options()
-    set_cors_headers()
-    ngx.status = 204
-    ngx.exit(204)
-end
+------------------------------------------------------------------------------
+-- 日志和统计
+------------------------------------------------------------------------------
 
 -- 记录请求日志
 local function log_request(method, uri, status)
-    local log_entry = string.format(
-        '[%s] %s %s - %d',
-        ngx.localtime(),
-        method,
-        uri,
-        status
-    )
-    ngx.log(ngx.INFO, log_entry)
+    ngx.log(ngx.INFO, string.format('[%s] %s %s - %d',
+        ngx.localtime(), method, uri, status))
 end
 
 -- 更新请求统计
@@ -51,90 +27,82 @@ local function update_stats(method, status)
     status_dict:incr("requests_total", 1, 0)
 
     -- 更新状态码统计
-    if status >= 200 and status < 300 then
-        status_dict:incr("status_2xx", 1, 0)
-    elseif status >= 300 and status < 400 then
-        status_dict:incr("status_3xx", 1, 0)
-    elseif status >= 400 and status < 500 then
-        status_dict:incr("status_4xx", 1, 0)
-    elseif status >= 500 then
-        status_dict:incr("status_5xx", 1, 0)
-    end
+    local status_key = status >= 500 and "status_5xx"
+                    or status >= 400 and "status_4xx"
+                    or status >= 300 and "status_3xx"
+                    or "status_2xx"
+    status_dict:incr(status_key, 1, 0)
 
     -- 更新方法统计
-    local method_lower = string.lower(method)
-    local key = "method_" .. method_lower
-    if status_dict:get(key) ~= nil then
-        status_dict:incr(key, 1, 0)
+    local method_key = "method_" .. string.lower(method)
+    if status_dict:get(method_key) ~= nil then
+        status_dict:incr(method_key, 1, 0)
     end
 end
 
+------------------------------------------------------------------------------
 -- 请求验证
+------------------------------------------------------------------------------
+
 local function validate_request()
-    -- 检查 Content-Type（POST/PUT 请求）
     local method = ngx.req.get_method()
     if method == "POST" or method == "PUT" then
-        local content_type = ngx.req.get_headers()["Content-Type"] or ""
-        if not content_type:find("application/json", 1, true) then
+        if not utils.is_json_request() then
             return false, "Content-Type must be application/json"
         end
     end
-
-    -- 可以添加更多验证逻辑，如认证检查
-    -- local auth = ngx.req.get_headers()["Authorization"]
-    -- if not auth then
-    --     return false, "Authorization header is required"
-    -- end
-
     return true
 end
 
--- 处理部署请求
+------------------------------------------------------------------------------
+-- 部署路由处理
+------------------------------------------------------------------------------
+
 local function handle_deploy(method, uri)
-    -- POST /api/deploy/preview - 预览配置
+    -- POST /api/deploy/preview
     if method == "POST" and uri:match("/preview$") then
-        local preview_result = deploy.preview()
-        return send_response(200, preview_result)
+        return utils.send_success(deploy.preview())
     end
 
-    -- POST /api/deploy/apply - 应用配置
+    -- POST /api/deploy/apply
     if method == "POST" and uri:match("/apply$") then
         local result = deploy.apply()
-        local status = result.success and 200 or 500
-        return send_response(status, result)
+        return result.success
+            and utils.send_success(result)
+            or utils.send_response(utils.HTTP_STATUS.INTERNAL_ERROR, result)
     end
 
-    -- POST /api/deploy/rollback - 回滚配置
+    -- POST /api/deploy/rollback
     if method == "POST" and uri:match("/rollback$") then
-        ngx.req.read_body()
-        local body = ngx.req.get_body_data()
-        local data = body and cjson.decode(body) or {}
-        local version = data.version
-
-        if not version then
-            return send_response(400, { error = "version is required for rollback" })
+        local data, err = utils.parse_json_body()
+        if not data then
+            return utils.send_error(err or "Invalid request body")
         end
 
-        local result = deploy.rollback(version)
-        local status = result.success and 200 or 500
-        return send_response(status, result)
+        local ok, err = utils.check_required(data, {"version"})
+        if not ok then
+            return utils.send_error(err)
+        end
+
+        local result = deploy.rollback(data.version)
+        return result.success
+            and utils.send_success(result)
+            or utils.send_response(utils.HTTP_STATUS.INTERNAL_ERROR, result)
     end
 
-    -- GET /api/deploy/status - 获取部署状态
+    -- GET /api/deploy/status
     if method == "GET" and uri:match("/status$") then
-        local status = deploy.status()
-        return send_response(200, status)
+        return utils.send_success(deploy.status())
     end
 
-    -- GET /api/deploy/history - 获取部署历史
+    -- GET /api/deploy/history
     if method == "GET" and uri:match("/history$") then
-        local history = deploy.history()
-        return send_response(200, { history = history })
+        return utils.send_success({ history = deploy.history() })
     end
 
-    -- GET /api/deploy - 部署 API 信息
+    -- GET /api/deploy - API 信息
     if method == "GET" then
-        return send_response(200, {
+        return utils.send_success({
             endpoints = {
                 preview = "POST /api/deploy/preview",
                 apply = "POST /api/deploy/apply",
@@ -145,32 +113,73 @@ local function handle_deploy(method, uri)
         })
     end
 
-    return send_response(404, { error = "Not Found" })
+    return utils.send_error("Not Found", utils.HTTP_STATUS.NOT_FOUND)
 end
 
--- 初始化
-function _M.init()
-    -- 初始化监控统计
-    monitor.init()
+------------------------------------------------------------------------------
+-- API 信息
+------------------------------------------------------------------------------
 
+local API_INFO = {
+    name = "OpenResty Config Admin API",
+    version = "1.0.0",
+    endpoints = {
+        config = {
+            list = "GET /api/config/:domain",
+            get = "GET /api/config/:domain/:id",
+            create = "POST /api/config/:domain",
+            update = "PUT /api/config/:domain/:id",
+            delete = "DELETE /api/config/:domain/:id",
+            validate = "POST /api/config/:domain/validate",
+            history = "GET /api/config/:domain/history",
+            rollback = "POST /api/config/:domain/rollback"
+        },
+        status = {
+            nginx = "GET /api/status/nginx",
+            connections = "GET /api/status/connections",
+            dict = "GET /api/status/dict",
+            cache = "GET /api/status/cache",
+            requests = "GET /api/status/requests",
+            all = "GET /api/status/all"
+        },
+        deploy = {
+            preview = "POST /api/deploy/preview",
+            apply = "POST /api/deploy/apply",
+            status = "GET /api/deploy/status",
+            history = "GET /api/deploy/history",
+            rollback = "POST /api/deploy/rollback"
+        },
+        health = "GET /api/health"
+    }
+}
+
+------------------------------------------------------------------------------
+-- 初始化
+------------------------------------------------------------------------------
+
+function _M.init()
+    monitor.init()
     ngx.log(ngx.INFO, "Admin API initialized")
 end
 
+------------------------------------------------------------------------------
 -- 路由分发
+------------------------------------------------------------------------------
+
 function _M.dispatch()
     local uri = ngx.var.uri
     local method = ngx.req.get_method()
 
     -- 处理 OPTIONS 预检请求
     if method == "OPTIONS" then
-        return handle_options()
+        return utils.handle_preflight()
     end
 
     -- 请求验证
     local valid, verr = validate_request()
     if not valid then
         log_request(method, uri, 400)
-        return send_response(400, { error = verr })
+        return utils.send_error(verr)
     end
 
     -- 路由分发
@@ -181,59 +190,25 @@ function _M.dispatch()
         elseif uri:match("^/api/status/") then
             monitor.handle(method, uri)
         elseif uri == "/api/health" or uri == "/api/health/" then
-            -- 健康检查端点
-            send_response(200, {
+            utils.send_success({
                 status = "healthy",
                 timestamp = ngx.localtime(),
                 version = "1.0.0"
             })
         elseif uri:match("^/api/deploy/") then
-            -- 部署管理路由
             handle_deploy(method, uri)
         elseif uri == "/api" or uri == "/api/" then
-            -- API 信息端点
-            send_response(200, {
-                name = "OpenResty Config Admin API",
-                version = "1.0.0",
-                endpoints = {
-                    config = {
-                        list = "GET /api/config/:domain",
-                        get = "GET /api/config/:domain/:id",
-                        create = "POST /api/config/:domain",
-                        update = "PUT /api/config/:domain/:id",
-                        delete = "DELETE /api/config/:domain/:id",
-                        validate = "POST /api/config/:domain/validate",
-                        history = "GET /api/config/:domain/history",
-                        rollback = "POST /api/config/:domain/rollback"
-                    },
-                    status = {
-                        nginx = "GET /api/status/nginx",
-                        connections = "GET /api/status/connections",
-                        dict = "GET /api/status/dict",
-                        cache = "GET /api/status/cache",
-                        requests = "GET /api/status/requests",
-                        all = "GET /api/status/all"
-                    },
-                    deploy = {
-                        preview = "POST /api/deploy/preview",
-                        apply = "POST /api/deploy/apply",
-                        status = "GET /api/deploy/status",
-                        history = "GET /api/deploy/history",
-                        rollback = "POST /api/deploy/rollback"
-                    },
-                    health = "GET /api/health"
-                }
-            })
+            utils.send_success(API_INFO)
         else
             status = 404
-            send_response(404, { error = "Not Found", uri = uri })
+            utils.send_error("Not Found", utils.HTTP_STATUS.NOT_FOUND)
         end
     end)
 
     if not success then
         ngx.log(ngx.ERR, "API Error: ", err)
         status = 500
-        send_response(500, { error = "Internal Server Error", message = err })
+        utils.send_response(500, { error = "Internal Server Error", message = err })
     end
 
     -- 更新统计

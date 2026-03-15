@@ -8,6 +8,10 @@ local _M = {
 local storage = require "admin.storage"
 local io_open = io.open
 
+------------------------------------------------------------------------------
+-- 工具函数
+------------------------------------------------------------------------------
+
 -- 缩进辅助函数
 local function indent(level)
     return string.rep("    ", level or 1)
@@ -19,16 +23,33 @@ local function escape_nginx(str)
     return str:gsub("([;'\"%$\\])", "\\%1")
 end
 
+-- 构建 server 参数字符串
+local function build_server_params(server)
+    local params = {}
+    local param_keys = { "weight", "max_fails", "fail_timeout" }
+
+    for _, key in ipairs(param_keys) do
+        if server[key] and (key ~= "weight" or server[key] ~= 1) then
+            table.insert(params, key .. "=" .. server[key])
+        end
+    end
+
+    if server.backup then table.insert(params, "backup") end
+    if server.down then table.insert(params, "down") end
+
+    return #params > 0 and " " .. table.concat(params, " ") or ""
+end
+
 ------------------------------------------------------------------------------
 -- Upstream 配置生成
 ------------------------------------------------------------------------------
+
 function _M.generate_upstream(item)
     if not item or not item.id then
         return nil, "upstream id is required"
     end
 
-    local lines = {}
-    table.insert(lines, "upstream " .. item.id .. " {")
+    local lines = { "upstream " .. item.id .. " {" }
 
     -- 负载均衡策略
     local balance = item.balance or "round_robin"
@@ -39,29 +60,8 @@ function _M.generate_upstream(item)
     -- 服务器列表
     for _, server in ipairs(item.servers or {}) do
         local server_line = indent(1) .. "server " .. server.host .. ":" .. server.port
-
-        local params = {}
-        if server.weight and server.weight ~= 1 then
-            table.insert(params, "weight=" .. server.weight)
-        end
-        if server.backup then
-            table.insert(params, "backup")
-        end
-        if server.down then
-            table.insert(params, "down")
-        end
-        if server.max_fails then
-            table.insert(params, "max_fails=" .. server.max_fails)
-        end
-        if server.fail_timeout then
-            table.insert(params, "fail_timeout=" .. server.fail_timeout)
-        end
-
-        if #params > 0 then
-            server_line = server_line .. " " .. table.concat(params, " ")
-        end
-
-        table.insert(lines, server_line .. ";")
+        server_line = server_line .. build_server_params(server) .. ";"
+        table.insert(lines, server_line)
     end
 
     -- keepalive
@@ -76,12 +76,6 @@ function _M.generate_upstream(item)
         table.insert(lines, indent(1) .. "# health_check interval=" .. (hc.interval or "5s") ..
             " fails=" .. (hc.fails or 3) .. " passes=" .. (hc.passes or 2) ..
             " uri=" .. (hc.uri or "/health") .. ";")
-        -- 使用 nginx 原生被动健康检查
-        for _, server in ipairs(item.servers or {}) do
-            if server.max_fails or server.fail_timeout then
-                -- 已在 server 行处理
-            end
-        end
     end
 
     table.insert(lines, "}")
@@ -93,6 +87,94 @@ end
 ------------------------------------------------------------------------------
 -- Location 配置生成
 ------------------------------------------------------------------------------
+
+-- 生成插件配置
+local function generate_plugins_config(plugins)
+    local lines = {}
+
+    for _, plugin in ipairs(plugins or {}) do
+        if plugin == "phone_range_router" then
+            table.insert(lines, indent(1) .. "set $upstream default_backend;")
+            table.insert(lines, "")
+            table.insert(lines, indent(1) .. "rewrite_by_lua_block {")
+            table.insert(lines, indent(2) .. 'require("phone_range_router.phone_range_router").prerouting()')
+            table.insert(lines, indent(1) .. "}")
+            table.insert(lines, "")
+            table.insert(lines, indent(1) .. "access_by_lua_block {")
+            table.insert(lines, indent(2) .. 'require("phone_range_router.phone_range_router").postrouting()')
+            table.insert(lines, indent(1) .. "}")
+            table.insert(lines, "")
+        end
+    end
+
+    return lines
+end
+
+-- 生成静态文件配置
+local function generate_static_config(item)
+    local lines = {}
+
+    if not item.root then return lines end
+
+    table.insert(lines, indent(1) .. "root " .. item.root .. ";")
+    if item.index then
+        table.insert(lines, indent(1) .. "index " .. item.index .. ";")
+    end
+    if item.expires then
+        table.insert(lines, indent(1) .. "expires " .. item.expires .. ";")
+    end
+    if item.cache_control then
+        table.insert(lines, indent(1) .. 'add_header Cache-Control "' .. item.cache_control .. '";')
+    end
+
+    return lines
+end
+
+-- 生成代理配置
+local function generate_proxy_config(item, has_plugins)
+    local lines = {}
+
+    if not item.proxy_pass then return lines end
+
+    -- 确定 proxy_pass 目标
+    local proxy_target = item.proxy_pass
+    if has_plugins then
+        for _, plugin in ipairs(item.plugins or {}) do
+            if plugin == "phone_range_router" then
+                proxy_target = "http://$upstream"
+                break
+            end
+        end
+    end
+    table.insert(lines, indent(1) .. "proxy_pass " .. proxy_target .. ";")
+
+    -- HTTP 版本
+    if item.proxy_http_version then
+        table.insert(lines, indent(1) .. "proxy_http_version " .. item.proxy_http_version .. ";")
+    end
+
+    -- Headers
+    if item.proxy_set_header then
+        for header, value in pairs(item.proxy_set_header) do
+            table.insert(lines, indent(1) .. 'proxy_set_header ' .. header .. ' "' .. value .. '";')
+        end
+    end
+
+    -- Timeouts
+    local timeout_keys = { "connect", "send", "read" }
+    for _, key in ipairs(timeout_keys) do
+        if item.proxy_timeout and item.proxy_timeout[key] then
+            table.insert(lines, indent(1) .. "proxy_" .. key .. "_timeout " .. item.proxy_timeout[key] .. ";")
+        end
+    end
+
+    -- 默认代理设置
+    table.insert(lines, indent(1) .. "proxy_redirect off;")
+    table.insert(lines, indent(1) .. "proxy_buffering on;")
+
+    return lines
+end
+
 function _M.generate_location(item)
     if not item or not item.path then
         return nil, "location path is required"
@@ -100,85 +182,24 @@ function _M.generate_location(item)
 
     local lines = {}
     local loc_type = item.location_type or ""
-    local loc_header = "location " .. loc_type .. " " .. item.path .. " {"
-    table.insert(lines, loc_header)
+    table.insert(lines, "location " .. loc_type .. " " .. item.path .. " {")
 
-    -- 插件集成 (rewrite_by_lua / access_by_lua)
-    if item.plugins and #item.plugins > 0 then
-        for _, plugin in ipairs(item.plugins) do
-            if plugin == "phone_range_router" then
-                table.insert(lines, indent(1) .. "set $upstream default_backend;")
-                table.insert(lines, "")
-                table.insert(lines, indent(1) .. "rewrite_by_lua_block {")
-                table.insert(lines, indent(2) .. 'require("phone_range_router.phone_range_router").prerouting()')
-                table.insert(lines, indent(1) .. "}")
-                table.insert(lines, "")
-                table.insert(lines, indent(1) .. "access_by_lua_block {")
-                table.insert(lines, indent(2) .. 'require("phone_range_router.phone_range_router").postrouting()')
-                table.insert(lines, indent(1) .. "}")
-                table.insert(lines, "")
-            end
-        end
+    -- 插件配置
+    local plugin_lines = generate_plugins_config(item.plugins)
+    for _, line in ipairs(plugin_lines) do
+        table.insert(lines, line)
     end
 
-    -- 静态文件处理
-    if item.root then
-        table.insert(lines, indent(1) .. "root " .. item.root .. ";")
-        if item.index then
-            table.insert(lines, indent(1) .. "index " .. item.index .. ";")
-        end
-        if item.expires then
-            table.insert(lines, indent(1) .. "expires " .. item.expires .. ";")
-        end
-        if item.cache_control then
-            table.insert(lines, indent(1) .. 'add_header Cache-Control "' .. item.cache_control .. '";')
-        end
+    -- 静态文件配置
+    local static_lines = generate_static_config(item)
+    for _, line in ipairs(static_lines) do
+        table.insert(lines, line)
     end
 
     -- 代理配置
-    if item.proxy_pass then
-        -- proxy_pass (可能使用变量)
-        local proxy_target = item.proxy_pass
-        if item.plugins and #item.plugins > 0 then
-            -- 如果有插件，可能使用 $upstream 变量
-            for _, plugin in ipairs(item.plugins) do
-                if plugin == "phone_range_router" then
-                    proxy_target = "http://$upstream"
-                    break
-                end
-            end
-        end
-        table.insert(lines, indent(1) .. "proxy_pass " .. proxy_target .. ";")
-
-        -- proxy_http_version
-        if item.proxy_http_version then
-            table.insert(lines, indent(1) .. "proxy_http_version " .. item.proxy_http_version .. ";")
-        end
-
-        -- proxy_set_header
-        if item.proxy_set_header then
-            for header, value in pairs(item.proxy_set_header) do
-                table.insert(lines, indent(1) .. 'proxy_set_header ' .. header .. ' "' .. value .. '";')
-            end
-        end
-
-        -- proxy_timeout
-        if item.proxy_timeout then
-            local timeout = item.proxy_timeout
-            if timeout.connect then
-                table.insert(lines, indent(1) .. "proxy_connect_timeout " .. timeout.connect .. ";")
-            end
-            if timeout.send then
-                table.insert(lines, indent(1) .. "proxy_send_timeout " .. timeout.send .. ";")
-            end
-            if timeout.read then
-                table.insert(lines, indent(1) .. "proxy_read_timeout " .. timeout.read .. ";")
-            end
-        end
-
-        -- 其他常用代理设置
-        table.insert(lines, indent(1) .. "proxy_redirect off;")
-        table.insert(lines, indent(1) .. "proxy_buffering on;")
+    local proxy_lines = generate_proxy_config(item, item.plugins and #item.plugins > 0)
+    for _, line in ipairs(proxy_lines) do
+        table.insert(lines, line)
     end
 
     -- 限流配置
@@ -188,10 +209,8 @@ function _M.generate_location(item)
     end
 
     -- 自定义指令
-    if item.directives then
-        for _, directive in ipairs(item.directives) do
-            table.insert(lines, indent(1) .. directive .. ";")
-        end
+    for _, directive in ipairs(item.directives or {}) do
+        table.insert(lines, indent(1) .. directive .. ";")
     end
 
     table.insert(lines, "}")
@@ -203,38 +222,30 @@ end
 ------------------------------------------------------------------------------
 -- HTTP Server 配置生成
 ------------------------------------------------------------------------------
-function _M.generate_http_server(item, locations)
-    if not item or not item.listen then
-        return nil, "server listen is required"
-    end
 
+-- 生成 listen 指令
+local function generate_listen_directives(listens)
     local lines = {}
-    table.insert(lines, "server {")
 
-    -- listen
-    local listens = item.listen
     if type(listens) ~= "table" then
         listens = { { port = listens } }
     end
 
     for _, l in ipairs(listens) do
         local listen_line = indent(1) .. "listen " .. (l.port or 80)
-        if l.ssl then
-            listen_line = listen_line .. " ssl"
-        end
-        if l.http2 then
-            listen_line = listen_line .. " http2"
-        end
+        if l.ssl then listen_line = listen_line .. " ssl" end
+        if l.http2 then listen_line = listen_line .. " http2" end
         table.insert(lines, listen_line .. ";")
     end
 
-    -- server_name
-    if item.server_name then
-        table.insert(lines, indent(1) .. "server_name " .. item.server_name .. ";")
-    end
+    return lines, listens
+end
 
-    -- SSL 配置
-    for _, l in ipairs(listens) do
+-- 生成 SSL 配置
+local function generate_ssl_config(listens)
+    local lines = {}
+
+    for _, l in ipairs(listens or {}) do
         if l.ssl then
             if l.certificate then
                 table.insert(lines, indent(1) .. "ssl_certificate " .. l.certificate .. ";")
@@ -246,36 +257,64 @@ function _M.generate_http_server(item, locations)
         end
     end
 
-    -- root
-    if item.root then
-        table.insert(lines, indent(1) .. "root " .. item.root .. ";")
-    end
+    return lines
+end
 
-    -- index
-    if item.index then
-        table.insert(lines, indent(1) .. "index " .. item.index .. ";")
-    end
+-- 生成 location 块
+local function generate_location_blocks(locations)
+    local lines = {}
 
-    -- 日志
-    if item.access_log then
-        table.insert(lines, indent(1) .. "access_log " .. item.access_log .. ";")
-    end
-    if item.error_log then
-        table.insert(lines, indent(1) .. "error_log " .. item.error_log .. ";")
-    end
+    if not locations then return lines end
 
-    -- locations
-    if locations then
-        table.insert(lines, "")
-        for _, loc in ipairs(locations) do
-            local loc_config, err = _M.generate_location(loc)
-            if loc_config then
-                -- 添加缩进
-                for line in loc_config:gmatch("[^\n]+") do
-                    table.insert(lines, indent(1) .. line)
-                end
+    table.insert(lines, "")
+    for _, loc in ipairs(locations) do
+        local loc_config = _M.generate_location(loc)
+        if loc_config then
+            for line in loc_config:gmatch("[^\n]+") do
+                table.insert(lines, indent(1) .. line)
             end
         end
+    end
+
+    return lines
+end
+
+function _M.generate_http_server(item, locations)
+    if not item or not item.listen then
+        return nil, "server listen is required"
+    end
+
+    local lines = { "server {" }
+
+    -- listen 指令
+    local listen_lines, listens = generate_listen_directives(item.listen)
+    for _, line in ipairs(listen_lines) do
+        table.insert(lines, line)
+    end
+
+    -- server_name
+    if item.server_name then
+        table.insert(lines, indent(1) .. "server_name " .. item.server_name .. ";")
+    end
+
+    -- SSL 配置
+    local ssl_lines = generate_ssl_config(listens)
+    for _, line in ipairs(ssl_lines) do
+        table.insert(lines, line)
+    end
+
+    -- root 和 index
+    if item.root then table.insert(lines, indent(1) .. "root " .. item.root .. ";") end
+    if item.index then table.insert(lines, indent(1) .. "index " .. item.index .. ";") end
+
+    -- 日志
+    if item.access_log then table.insert(lines, indent(1) .. "access_log " .. item.access_log .. ";") end
+    if item.error_log then table.insert(lines, indent(1) .. "error_log " .. item.error_log .. ";") end
+
+    -- locations
+    local loc_lines = generate_location_blocks(locations)
+    for _, line in ipairs(loc_lines) do
+        table.insert(lines, line)
     end
 
     table.insert(lines, "}")
@@ -287,40 +326,29 @@ end
 ------------------------------------------------------------------------------
 -- Stream Server 配置生成
 ------------------------------------------------------------------------------
+
 function _M.generate_stream_server(item, upstreams)
     if not item or not item.listen then
         return nil, "stream listen is required"
     end
 
-    local lines = {}
-    table.insert(lines, "server {")
+    local lines = { "server {" }
 
     -- listen
-    local listen_str = item.listen
-    if type(listen_str) == "number" then
-        listen_str = tostring(listen_str)
-    end
+    local listen_str = type(item.listen) == "number" and tostring(item.listen) or item.listen
     table.insert(lines, indent(1) .. "listen " .. listen_str .. ";")
 
     -- proxy_pass
     if item.proxy_pass then
-        local proxy_target = item.proxy_pass
-        -- 检查是否是 upstream 引用
-        if upstreams and upstreams[proxy_target] then
-            proxy_target = proxy_target -- upstream 名称
-        end
-        table.insert(lines, indent(1) .. "proxy_pass " .. proxy_target .. ";")
+        table.insert(lines, indent(1) .. "proxy_pass " .. item.proxy_pass .. ";")
     end
 
     -- timeout
     if item.timeout then
-        local timeout = item.timeout
-        if timeout.connect then
-            table.insert(lines, indent(1) .. "proxy_connect_timeout " .. timeout.connect .. ";")
+        if item.timeout.connect then
+            table.insert(lines, indent(1) .. "proxy_connect_timeout " .. item.timeout.connect .. ";")
         end
-        -- stream 模块的 proxy_timeout 同时用于读和写
-        -- 如果两者都设置，使用较大的值
-        local timeout_value = timeout.read or timeout.send
+        local timeout_value = item.timeout.read or item.timeout.send
         if timeout_value then
             table.insert(lines, indent(1) .. "proxy_timeout " .. timeout_value .. ";")
         end
@@ -335,68 +363,71 @@ end
 ------------------------------------------------------------------------------
 -- 生成所有配置
 ------------------------------------------------------------------------------
+
+-- 通用的配置生成辅助函数
+local function generate_configs(domain, generator, result_key, result, ...)
+    local config = storage.load(domain)
+    if not config or not config.items then return end
+
+    for _, item in ipairs(config.items) do
+        local conf = generator(item, ...)
+        if conf then
+            table.insert(result[result_key], conf)
+        else
+            ngx.log(ngx.WARN, "Failed to generate " .. domain .. ": ", item.id or item.path or "unknown")
+        end
+    end
+end
+
 function _M.generate_all()
     local result = {
-        upstreams = {},
+        upstream_configs = {},
+        upstream_refs = {},
         http_servers = {},
         stream_servers = {},
         locations = {}
     }
 
-    -- 加载所有配置
-    local upstream_config = storage.load("upstream")
-    local http_config = storage.load("http")
-    local stream_config = storage.load("stream")
-    local location_config = storage.load("location")
-
     -- 生成 upstream 配置
+    local upstream_config = storage.load("upstream")
     if upstream_config and upstream_config.items then
         for _, item in ipairs(upstream_config.items) do
-            local conf, err = _M.generate_upstream(item)
+            local conf = _M.generate_upstream(item)
             if conf then
-                table.insert(result.upstreams, conf)
-                result.upstreams[item.id] = item  -- 保存引用
-            else
-                ngx.log(ngx.WARN, "Failed to generate upstream ", item.id, ": ", err)
+                table.insert(result.upstream_configs, conf)
+                result.upstream_refs[item.id] = item
             end
         end
     end
 
     -- 生成 location 配置
+    local location_config = storage.load("location")
     local locations = {}
     if location_config and location_config.items then
         for _, item in ipairs(location_config.items) do
-            local conf, err = _M.generate_location(item)
+            local conf = _M.generate_location(item)
             if conf then
                 table.insert(result.locations, conf)
                 table.insert(locations, item)
-            else
-                ngx.log(ngx.WARN, "Failed to generate location ", item.path, ": ", err)
             end
         end
     end
 
     -- 生成 http server 配置
+    local http_config = storage.load("http")
     if http_config and http_config.items then
         for _, item in ipairs(http_config.items) do
-            local conf, err = _M.generate_http_server(item, locations)
-            if conf then
-                table.insert(result.http_servers, conf)
-            else
-                ngx.log(ngx.WARN, "Failed to generate http server: ", err)
-            end
+            local conf = _M.generate_http_server(item, locations)
+            if conf then table.insert(result.http_servers, conf) end
         end
     end
 
     -- 生成 stream server 配置
+    local stream_config = storage.load("stream")
     if stream_config and stream_config.items then
         for _, item in ipairs(stream_config.items) do
-            local conf, err = _M.generate_stream_server(item, result.upstreams)
-            if conf then
-                table.insert(result.stream_servers, conf)
-            else
-                ngx.log(ngx.WARN, "Failed to generate stream server: ", err)
-            end
+            local conf = _M.generate_stream_server(item, result.upstream_refs)
+            if conf then table.insert(result.stream_servers, conf) end
         end
     end
 
@@ -406,24 +437,22 @@ end
 ------------------------------------------------------------------------------
 -- 生成完整的 nginx.conf
 ------------------------------------------------------------------------------
+
 function _M.generate_nginx_conf(template_path)
     local configs = _M.generate_all()
-
     local parts = {}
 
-    -- upstream 配置
-    if #configs.upstreams > 0 then
-        table.insert(parts, "# Upstreams")
-        for _, conf in ipairs(configs.upstreams) do
-            table.insert(parts, conf)
-        end
-    end
+    local sections = {
+        { title = "# Upstreams", configs = configs.upstream_configs },
+        { title = "# HTTP Servers", configs = configs.http_servers }
+    }
 
-    -- HTTP servers
-    if #configs.http_servers > 0 then
-        table.insert(parts, "# HTTP Servers")
-        for _, conf in ipairs(configs.http_servers) do
-            table.insert(parts, conf)
+    for _, section in ipairs(sections) do
+        if #section.configs > 0 then
+            table.insert(parts, section.title)
+            for _, conf in ipairs(section.configs) do
+                table.insert(parts, conf)
+            end
         end
     end
 
@@ -433,6 +462,7 @@ end
 ------------------------------------------------------------------------------
 -- 写入配置文件
 ------------------------------------------------------------------------------
+
 function _M.write_config(filepath, content)
     local file, err = io_open(filepath, "w")
     if not file then

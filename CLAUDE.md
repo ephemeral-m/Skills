@@ -2,6 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## 项目记忆
+
+> 项目记忆文件位于 `.claude/memory/MEMORY.md`，记录开发过程中的重要信息和已解决的问题，便于团队成员共享。
+
 ## 语言偏好
 
 始终使用中文与用户交流沟通。
@@ -68,37 +72,45 @@ Nginx C 模块开发目录，用于开发高性能原生模块
 
 ## 自定义 Skills
 
+### 核心开发
 | Skill | 用途 |
 |-------|------|
-| `openresty-lua-plugins` | 生成基于 OpenResty 的 HTTP/TCP/UDP Lua 插件 |
+| `dev` | 统一开发入口：build/test/sync/start/stop |
+| `openresty-lua-plugins` | 生成 HTTP/TCP/UDP Lua 插件 |
+| `web-admin-frontend` | Web-Admin 前端开发指南 |
+
+### 错误修复
+| Skill | 用途 |
+|-------|------|
+| `fix-compile` | 编译错误修复 (C/Lua) |
+| `fix-runtime` | 运行时错误修复 |
+| `fix-test` | 测试失败修复 |
+| `fix-loop` | 自动迭代修复循环 |
+
+### 代码质量
+| Skill | 用途 |
+|-------|------|
 | `code-review` | 系统性代码审查 |
 | `code-reactor` | 代码重构和改进 |
-| `document-ar-docx` | Word 文档处理 |
-| `jenkins-pipeline` | Jenkins CI/CD 流水线配置 |
-| `monitor-observablility` | 监控和可观测性实现 |
+| `feedback` | 自动优化反馈机制 |
 
-使用方式：`/openresty-lua-plugins`、`/code-review` 等。
+### DevOps
+| Skill | 用途 |
+|-------|------|
+| `jenkins-pipeline` | CI/CD 流水线配置 |
+| `monitor-observablility` | 监控和可观测性 |
+
+使用方式：`/dev all`、`/openresty-lua-plugins` 等。
 
 ## 开发指南
 
-### Lua 插件开发
-```bash
-# 插件目录
-cd src/lua-plugins/
+| 操作 | 命令 |
+|------|------|
+| 完整流水线 | `/dev all [module]` |
+| 编译模块 | `/dev build [module]` |
+| 运行测试 | `/dev test [module]` |
+| 同步代码 | `/dev sync` |
+| 启动服务 | `/dev start` |
+| 停止服务 | `/dev stop` |
 
-# 使用 skill 生成插件
-/openresty-lua-plugins
-```
-
-### 前端管理模块
-```bash
-cd src/web-admin/frontend
-npm install
-npm run dev
-```
-
-### Nginx C 模块开发
-```bash
-cd src/ngx-modules/
-# 参考 README.md 进行开发
-```
+详细说明见 `/dev` skill。

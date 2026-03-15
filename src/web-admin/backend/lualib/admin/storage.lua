@@ -8,6 +8,10 @@ local io_open = io.open
 -- 数据目录
 local DATA_DIR = ngx.config.prefix() .. "../data/configs/"
 
+------------------------------------------------------------------------------
+-- 工具函数
+------------------------------------------------------------------------------
+
 -- 获取配置文件路径
 local function get_path(domain)
     return DATA_DIR .. domain .. ".json"
@@ -18,19 +22,16 @@ local function get_history_path(domain, version)
     return DATA_DIR .. "history/" .. domain .. "_" .. version .. ".json"
 end
 
--- 加载配置
-function _M.load(domain)
-    local path = get_path(domain)
+-- 确保目录存在
+local function ensure_dirs()
+    os.execute('mkdir -p "' .. DATA_DIR .. '"')
+    os.execute('mkdir -p "' .. DATA_DIR .. 'history"')
+end
+
+-- 读取 JSON 文件
+local function read_json_file(path)
     local file, err = io_open(path, "r")
     if not file then
-        -- 文件不存在，返回默认结构
-        if err and err:find("No such file") then
-            return {
-                version = 0,
-                updated_at = nil,
-                items = {}
-            }
-        end
         return nil, err
     end
 
@@ -45,12 +46,42 @@ function _M.load(domain)
     return data
 end
 
+-- 写入 JSON 文件
+local function write_json_file(path, data)
+    local file, err = io_open(path, "w")
+    if not file then
+        return nil, "Failed to open file: " .. (err or "unknown")
+    end
+
+    file:write(cjson.encode(data))
+    file:close()
+
+    return true
+end
+
+------------------------------------------------------------------------------
+-- 公共 API
+------------------------------------------------------------------------------
+
+-- 加载配置
+function _M.load(domain)
+    local path = get_path(domain)
+    local data, err = read_json_file(path)
+
+    if not data then
+        -- 文件不存在，返回默认结构
+        if err and err:find("No such file") then
+            return { version = 0, updated_at = nil, items = {} }
+        end
+        return nil, err
+    end
+
+    return data
+end
+
 -- 保存配置（带版本管理）
 function _M.save(domain, data)
-    -- 确保数据目录存在
-    local mkdir_cmd = 'mkdir -p "' .. DATA_DIR .. '"'
-    os.execute(mkdir_cmd)
-    os.execute('mkdir -p "' .. DATA_DIR .. 'history"')
+    ensure_dirs()
 
     -- 加载现有配置获取版本号
     local existing = _M.load(domain)
@@ -68,20 +99,13 @@ function _M.save(domain, data)
     data.updated_at = ngx.localtime()
 
     -- 写入新配置
-    local path = get_path(domain)
-    local file, err = io_open(path, "w")
-    if not file then
-        return nil, "Failed to open file: " .. (err or "unknown")
-    end
-
-    local encoded = cjson.encode(data)
-    file:write(encoded)
-    file:close()
+    local ok, err = write_json_file(get_path(domain), data)
+    if not ok then return nil, err end
 
     -- 更新共享字典缓存
     local cache = ngx.shared.config_cache
     if cache then
-        cache:set(domain, encoded)
+        cache:set(domain, cjson.encode(data))
     end
 
     return true
@@ -89,32 +113,19 @@ end
 
 -- 回滚到指定版本
 function _M.rollback(domain, version)
-    local history_path = get_history_path(domain, version)
-    local file, err = io_open(history_path, "r")
-    if not file then
+    local data, err = read_json_file(get_history_path(domain, version))
+    if not data then
         return nil, "Version " .. version .. " not found: " .. (err or "unknown")
     end
 
-    local content = file:read("*a")
-    file:close()
-
-    local data, decode_err = cjson.decode(content)
-    if not data then
-        return nil, "JSON decode error: " .. (decode_err or "unknown")
-    end
-
-    -- 保存回滚后的配置
     return _M.save(domain, data)
 end
 
 -- 获取版本历史
 function _M.history(domain)
-    local history_dir = DATA_DIR .. "history/"
-    local cmd = 'ls "' .. history_dir .. domain .. '_*.json" 2>/dev/null'
+    local cmd = 'ls "' .. DATA_DIR .. 'history/' .. domain .. '_*.json" 2>/dev/null'
     local handle = io.popen(cmd)
-    if not handle then
-        return {}
-    end
+    if not handle then return {} end
 
     local result = handle:read("*a")
     handle:close()
@@ -131,77 +142,25 @@ function _M.history(domain)
     return versions
 end
 
--- 删除配置项
-function _M.delete_item(domain, id)
-    local data = _M.load(domain)
-    if not data then
-        return nil, "Config not found"
-    end
-
-    local found = false
-    local new_items = {}
-    for _, item in ipairs(data.items) do
-        if item.id ~= id then
-            table.insert(new_items, item)
-        else
-            found = true
-        end
-    end
-
-    if not found then
-        return nil, "Item not found: " .. id
-    end
-
-    data.items = new_items
-    return _M.save(domain, data)
-end
+------------------------------------------------------------------------------
+-- CRUD 操作
+------------------------------------------------------------------------------
 
 -- 获取单个配置项
 function _M.get_item(domain, id)
     local data = _M.load(domain)
-    if not data then
-        return nil, "Config not found"
-    end
+    if not data then return nil, "Config not found" end
 
     for _, item in ipairs(data.items) do
-        if item.id == id then
-            return item
-        end
+        if item.id == id then return item end
     end
 
     return nil, "Item not found: " .. id
 end
 
--- 更新单个配置项
-function _M.update_item(domain, id, item_data)
-    local data = _M.load(domain)
-    if not data then
-        return nil, "Config not found"
-    end
-
-    local found = false
-    for i, item in ipairs(data.items) do
-        if item.id == id then
-            item_data.id = id  -- 保持 ID 不变
-            data.items[i] = item_data
-            found = true
-            break
-        end
-    end
-
-    if not found then
-        return nil, "Item not found: " .. id
-    end
-
-    return _M.save(domain, data)
-end
-
 -- 添加配置项
 function _M.add_item(domain, item_data)
-    local data = _M.load(domain)
-    if not data then
-        data = { version = 0, items = {} }
-    end
+    local data = _M.load(domain) or { version = 0, items = {} }
 
     -- 生成 ID
     if not item_data.id then
@@ -210,6 +169,44 @@ function _M.add_item(domain, item_data)
 
     table.insert(data.items, item_data)
     return _M.save(domain, data), item_data.id
+end
+
+-- 更新单个配置项
+function _M.update_item(domain, id, item_data)
+    local data = _M.load(domain)
+    if not data then return nil, "Config not found" end
+
+    for i, item in ipairs(data.items) do
+        if item.id == id then
+            item_data.id = id  -- 保持 ID 不变
+            data.items[i] = item_data
+            return _M.save(domain, data)
+        end
+    end
+
+    return nil, "Item not found: " .. id
+end
+
+-- 删除配置项
+function _M.delete_item(domain, id)
+    local data = _M.load(domain)
+    if not data then return nil, "Config not found" end
+
+    local new_items = {}
+    local found = false
+
+    for _, item in ipairs(data.items) do
+        if item.id == id then
+            found = true
+        else
+            table.insert(new_items, item)
+        end
+    end
+
+    if not found then return nil, "Item not found: " .. id end
+
+    data.items = new_items
+    return _M.save(domain, data)
 end
 
 return _M

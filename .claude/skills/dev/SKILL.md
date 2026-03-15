@@ -38,7 +38,7 @@ description: 统一开发命令入口，零 Token 消耗执行 build/test/verify
 /dev build [module]            # 编译指定模块或全部
 /dev test [module]             # 测试指定模块或全部
 /dev test --dt [file]          # 运行 Test::Nginx 测试用例
-/dev run                       # 启动服务（远程）
+/dev start                     # 启动服务（远程）
 /dev stop                      # 停止服务（远程）
 /dev sync                      # 同步代码到远程服务器
 /dev status                    # 查看项目状态
@@ -67,7 +67,7 @@ sync → build → test
 
 ### 服务管理
 
-- `/dev run`: 启动远程开发服务
+- `/dev start`: 启动远程开发服务
 - `/dev stop`: 停止远程开发服务
 
 **注意：** 服务启动/停止在远程 Linux 执行，由 `tools/scripts/run.sh` 和 `tools/scripts/stop.sh` 封装。

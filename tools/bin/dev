@@ -590,7 +590,7 @@ class DevCLI:
                     print(f"  {'✓' if data.get('success') else '✗'} {f.stem}")
         return 0
 
-    def cmd_run(self) -> int:
+    def cmd_start(self) -> int:
         """启动服务（远程执行）"""
         log_i("启动服务...")
         result = self.exec_remote("bash tools/scripts/run.sh")
@@ -751,7 +751,7 @@ def main():
     # 其他命令
     subparsers.add_parser('sync', help='同步代码到远程')
     subparsers.add_parser('status', help='查看项目状态')
-    subparsers.add_parser('run', help='启动服务')
+    subparsers.add_parser('start', help='启动服务')
     subparsers.add_parser('stop', help='停止服务')
 
     # analyze 子命令 - 分析错误
@@ -780,8 +780,8 @@ def main():
         sys.exit(cli.cmd_sync())
     elif args.command == 'status':
         sys.exit(cli.cmd_status())
-    elif args.command == 'run':
-        sys.exit(cli.cmd_run())
+    elif args.command == 'start':
+        sys.exit(cli.cmd_start())
     elif args.command == 'stop':
         sys.exit(cli.cmd_stop())
     elif args.command == 'analyze':
