@@ -7,6 +7,34 @@ description: 使用 Lua 语言基于 OpenResty 框架生成 HTTP 或 TCP/UDP 插
 
 生成单个独立的 Lua 模块文件，支持 HTTP 和 Stream (TCP/UDP) 两种模式。
 
+> **跨平台开发模式**: Windows 开发 + Linux 远程运行，详见 `/dev` skill 或项目 CLAUDE.md
+
+## 插件开发流程
+
+| 操作 | 执行位置 | 方式 |
+|------|----------|------|
+| 代码编辑 | Windows 本地 | IDE/编辑器 |
+| 插件生成 | Windows 本地 | 此 SKILL |
+| 构建测试 | Linux 远程 | `/dev build` / `/dev test --dt` |
+| 服务运行 | Linux 远程 | `/dev run` |
+
+```
+1. 本地生成插件代码 (此 SKILL)
+        ↓
+2. 同步代码到远程 (/dev sync)
+        ↓
+3. 远程构建 (/dev build)
+        ↓
+4. 远程测试 (/dev test --dt)
+        ↓
+5. 远程运行 (/dev run)
+```
+
+**注意事项：**
+- Lua 代码在 Windows 编辑，但必须在 Linux 上测试运行
+- 测试用例 (Test::Nginx) 只能在 Linux 上执行
+- 路径分隔符：Lua 代码中使用 `/`（Linux 风格）
+
 ## 设计原则
 
 ### 1. 优先使用 Nginx 原生配置

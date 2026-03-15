@@ -2,6 +2,133 @@
 # 记录在开发过程中发现的最佳实践和解决方案
 
 # ============================================================
+# 跨平台开发模式
+# ============================================================
+
+development_model:
+  name: "Windows 开发 + Linux 远程运行"
+  description: "本地 Windows 编辑代码，远程 Linux 执行构建和运行"
+
+  local_windows:
+    responsibilities:
+      - "代码编辑 (IDE/编辑器)"
+      - "Git 版本管理"
+      - "通过 dev CLI 控制远程"
+    tools:
+      - "Python dev CLI"
+      - "paramiko SSH 库"
+    do_not:
+      - "不要直接在本地运行 Shell 脚本"
+      - "不要假设 Linux 命令在 Windows 可用"
+      - "不要在本地构建 OpenResty"
+
+  remote_linux:
+    responsibilities:
+      - "OpenResty 构建和运行"
+      - "所有 Shell 脚本执行"
+      - "服务启动/停止/测试"
+      - "生产流量转发"
+    path_mapping:
+      local: "D:\\Coding\\Code\\Dev\\Skills"
+      remote: "/home/mxp/Skills"
+
+  dev_cli_bridge:
+    description: "Python CLI 作为本地与远程的桥梁"
+    commands:
+      sync: "同步代码到远程"
+      build: "远程执行构建脚本"
+      test: "远程执行测试脚本"
+      run: "远程启动服务"
+      stop: "远程停止服务"
+    implementation:
+      - "使用 paramiko 建立 SSH 连接"
+      - "打包代码并 SFTP 传输"
+      - "远程执行 shell 命令"
+      - "返回执行结果"
+
+  common_issues:
+    - id: windows-path-in-script
+      pattern: ["bash: command not found", "No such file or directory"]
+      cause: "在 Windows 上直接运行 Shell 脚本"
+      fix: "使用 /dev 命令或 python tools/bin/dev 在远程执行"
+
+    - id: code-not-synced
+      pattern: ["修改后没有生效", "代码更新但不生效"]
+      cause: "修改代码后未同步到远程"
+      fix: "执行 /dev sync 同步代码"
+
+    - id: encoding-utf8
+      pattern: ["中文文件名乱码", "UnicodeDecodeError"]
+      cause: "Windows/Linux 编码差异"
+      fix: "tarfile.open(..., encoding='utf-8')"
+
+# ============================================================
+# 架构设计模式
+# ============================================================
+
+architecture_patterns:
+  # 配置驱动架构
+  config_driven:
+    name: "配置驱动架构"
+    description: "JSON 配置 → 配置生成器 → nginx.conf"
+    components:
+      - "JSON 配置存储 (web-admin/data/configs/)"
+      - "配置生成器 (generator.lua)"
+      - "部署控制器 (deploy.lua)"
+      - "生产实例 (openresty-prod/)"
+    data_flow:
+      - "用户修改配置 (前端表单)"
+      - "API 保存 JSON (POST /api/config/:domain)"
+      - "生成器转换格式 (generator.lua)"
+      - "控制器验证重载 (POST /api/deploy/apply)"
+    applicable_to:
+      - "需要动态配置的场景"
+      - "配置需要版本管理的场景"
+      - "配置需要可视化管理的场景"
+    benefits:
+      - "配置与代码分离"
+      - "支持版本回滚"
+      - "可视化配置管理"
+      - "配置验证前置"
+
+  # 管理控制台与生产分离
+  admin_prod_separation:
+    name: "管理控制台与生产分离"
+    description: "web-admin 作为管理控制台，openresty-prod 作为生产实例"
+    components:
+      - "管理控制台 (web-admin, 端口 8080/8081)"
+      - "生产实例 (openresty-prod, 端口 80/443)"
+    separation_points:
+      - "配置管理在控制台完成"
+      - "生产实例只负责流量转发"
+      - "配置变更通过部署 API 应用"
+    benefits:
+      - "管理操作不影响生产流量"
+      - "可以在控制台预览配置"
+      - "支持配置回滚"
+
+  # 前后端分离
+  frontend_backend_separation:
+    name: "前后端分离架构"
+    description: "Vue 3 前端 + OpenResty Lua API 后端"
+    frontend:
+      framework: "Vue 3 + Element Plus"
+      responsibilities:
+        - "用户交互"
+        - "表单验证"
+        - "状态展示"
+    backend:
+      framework: "OpenResty + Lua"
+      responsibilities:
+        - "配置 CRUD"
+        - "配置生成"
+        - "部署控制"
+    api_design:
+      config: "/api/config/:domain"
+      deploy: "/api/deploy/*"
+      status: "/api/status/*"
+
+# ============================================================
 # OpenResty/Web-Admin 相关
 # ============================================================
 

@@ -17,6 +17,9 @@ OPENRESTY_SRC="$SRC_DIR/openresty"
 LUA_PLUGINS_DIR="$SRC_DIR/lua-plugins"
 WEB_ADMIN_DIR="$SRC_DIR/web-admin"
 
+# 生产 OpenResty 目录
+OPENRESTY_PROD_DIR="$SRC_DIR/openresty-prod"
+
 # 构建目录
 BUILD_DIR="$PROJECT_ROOT/build"
 OPENRESTY_PREFIX="$BUILD_DIR/openresty"
@@ -187,12 +190,112 @@ stop_nginx() {
             log_info "停止 Nginx (PID: $pid)..."
             "$NGINX_BIN" -s stop 2>/dev/null || kill "$pid" 2>/dev/null || true
             sleep 1
+            # 确认进程已停止
+            if kill -0 "$pid" 2>/dev/null; then
+                log_warn "Nginx 进程 $pid 仍在运行"
+                return 1
+            fi
             return 0
         else
             log_warn "Nginx 未运行 (PID 文件过期)"
             rm -f "$pid_file"
+            return 0  # 清理过期文件也算成功
         fi
     fi
+    return 1
+}
+
+# ============================================================
+# 生产 OpenResty 相关函数
+# ============================================================
+
+# 获取生产 nginx PID 文件路径
+get_prod_nginx_pid_file() {
+    echo "$OPENRESTY_PROD_DIR/logs/nginx.pid"
+}
+
+# 检查生产 nginx 是否运行
+is_prod_running() {
+    local pid_file
+    pid_file=$(get_prod_nginx_pid_file)
+    [[ -f "$pid_file" ]] || return 1
+    local pid
+    pid=$(cat "$pid_file" 2>/dev/null)
+    [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
+}
+
+# 启动生产 nginx
+start_nginx_prod() {
+    local conf_file="$OPENRESTY_PROD_DIR/nginx.conf"
+
+    if [[ ! -f "$conf_file" ]]; then
+        log_error "生产配置文件不存在: $conf_file"
+        return 1
+    fi
+
+    # 创建必要目录
+    mkdir -p "$OPENRESTY_PROD_DIR/logs"
+    mkdir -p "$OPENRESTY_PROD_DIR/conf.d"
+    mkdir -p "$OPENRESTY_PROD_DIR/deploy_history"
+
+    # 设置 Lua 模块路径
+    export LUA_PATH="$OPENRESTY_PREFIX/lualib/?.lua;$LUA_PLUGINS_DIR/?.lua;;"
+    export LUA_CPATH="$OPENRESTY_PREFIX/lualib/?.so;;"
+
+    # 测试配置
+    log_info "验证生产配置..."
+    if ! "$NGINX_BIN" -t -p "$OPENRESTY_PROD_DIR" -c nginx.conf 2>&1; then
+        log_error "生产配置验证失败"
+        return 1
+    fi
+
+    # 启动 nginx
+    log_info "启动生产 OpenResty..."
+    "$NGINX_BIN" -p "$OPENRESTY_PROD_DIR" -c nginx.conf
+    local ret=$?
+
+    if [[ $ret -eq 0 ]]; then
+        log_success "生产 OpenResty 已启动 (端口: 80/443)"
+    fi
+    return $ret
+}
+
+# 停止生产 nginx
+stop_nginx_prod() {
+    local pid_file
+    pid_file=$(get_prod_nginx_pid_file)
+
+    if [[ -f "$pid_file" ]]; then
+        local pid
+        pid=$(cat "$pid_file" 2>/dev/null)
+        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+            log_info "停止生产 Nginx (PID: $pid)..."
+            kill -QUIT "$pid" 2>/dev/null || true
+            sleep 1
+            return 0
+        else
+            log_warn "生产 Nginx 未运行 (PID 文件过期)"
+            rm -f "$pid_file"
+        fi
+    fi
+    return 1
+}
+
+# 重载生产 nginx 配置
+reload_nginx_prod() {
+    local pid_file
+    pid_file=$(get_prod_nginx_pid_file)
+
+    if [[ -f "$pid_file" ]]; then
+        local pid
+        pid=$(cat "$pid_file" 2>/dev/null)
+        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+            log_info "重载生产 Nginx 配置 (PID: $pid)..."
+            kill -HUP "$pid" 2>/dev/null
+            return $?
+        fi
+    fi
+    log_warn "生产 Nginx 未运行"
     return 1
 }
 

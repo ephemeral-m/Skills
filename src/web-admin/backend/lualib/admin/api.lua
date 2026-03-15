@@ -5,6 +5,7 @@ local _M = {}
 local cjson = require "cjson.safe"
 local config = require "admin.config"
 local monitor = require "admin.monitor"
+local deploy = require "admin.deploy"
 
 -- CORS 头
 local function set_cors_headers()
@@ -88,6 +89,65 @@ local function validate_request()
     return true
 end
 
+-- 处理部署请求
+local function handle_deploy(method, uri)
+    -- POST /api/deploy/preview - 预览配置
+    if method == "POST" and uri:match("/preview$") then
+        local preview_result = deploy.preview()
+        return send_response(200, preview_result)
+    end
+
+    -- POST /api/deploy/apply - 应用配置
+    if method == "POST" and uri:match("/apply$") then
+        local result = deploy.apply()
+        local status = result.success and 200 or 500
+        return send_response(status, result)
+    end
+
+    -- POST /api/deploy/rollback - 回滚配置
+    if method == "POST" and uri:match("/rollback$") then
+        ngx.req.read_body()
+        local body = ngx.req.get_body_data()
+        local data = body and cjson.decode(body) or {}
+        local version = data.version
+
+        if not version then
+            return send_response(400, { error = "version is required for rollback" })
+        end
+
+        local result = deploy.rollback(version)
+        local status = result.success and 200 or 500
+        return send_response(status, result)
+    end
+
+    -- GET /api/deploy/status - 获取部署状态
+    if method == "GET" and uri:match("/status$") then
+        local status = deploy.status()
+        return send_response(200, status)
+    end
+
+    -- GET /api/deploy/history - 获取部署历史
+    if method == "GET" and uri:match("/history$") then
+        local history = deploy.history()
+        return send_response(200, { history = history })
+    end
+
+    -- GET /api/deploy - 部署 API 信息
+    if method == "GET" then
+        return send_response(200, {
+            endpoints = {
+                preview = "POST /api/deploy/preview",
+                apply = "POST /api/deploy/apply",
+                status = "GET /api/deploy/status",
+                history = "GET /api/deploy/history",
+                rollback = "POST /api/deploy/rollback"
+            }
+        })
+    end
+
+    return send_response(404, { error = "Not Found" })
+end
+
 -- 初始化
 function _M.init()
     -- 初始化监控统计
@@ -127,6 +187,9 @@ function _M.dispatch()
                 timestamp = ngx.localtime(),
                 version = "1.0.0"
             })
+        elseif uri:match("^/api/deploy/") then
+            -- 部署管理路由
+            handle_deploy(method, uri)
         elseif uri == "/api" or uri == "/api/" then
             -- API 信息端点
             send_response(200, {
@@ -150,6 +213,13 @@ function _M.dispatch()
                         cache = "GET /api/status/cache",
                         requests = "GET /api/status/requests",
                         all = "GET /api/status/all"
+                    },
+                    deploy = {
+                        preview = "POST /api/deploy/preview",
+                        apply = "POST /api/deploy/apply",
+                        status = "GET /api/deploy/status",
+                        history = "GET /api/deploy/history",
+                        rollback = "POST /api/deploy/rollback"
                     },
                     health = "GET /api/health"
                 }
