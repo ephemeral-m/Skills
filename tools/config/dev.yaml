@@ -7,11 +7,11 @@ project:
 
 # 远程机器配置
 remote:
-  host: 192.168.168.218
+  host: 192.168.5.14
   port: 22
-  user: m30020610
+  user: root
   password: 123456
-  workdir: /home/m30020610/Skills
+  workdir: /home/mxp/Skills
 
 # 模块定义
 modules:
@@ -32,3 +32,15 @@ sync:
     - "*.o"
     - "*.a"
     - "*.so"
+
+# Pipeline 配置
+pipeline:
+  # 执行顺序
+  steps:
+    - sync
+    - build
+    - test
+  # 失败行为
+  stop_on_failure: true
+  # 错误分析器路径
+  fixers_dir: tools/fixers

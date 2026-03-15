@@ -1,0 +1,194 @@
+# C/Nginx 运行时错误自动修复规则
+# OpenResty/Nginx 运行时问题诊断
+
+version: "1.0"
+language: c
+
+rules:
+  # ============================================================================
+  # Segmentation Fault
+  # ============================================================================
+  - id: segfault_null_pointer
+    pattern: "Segmentation fault.*at ([0-9a-fx]+)"
+    severity: critical
+    fix:
+      type: suggest
+      message: |
+        段错误: 空指针访问
+        检查:
+        1. 指针初始化是否正确
+        2. 内存分配返回值检查: if (p == NULL) return NGX_ERROR;
+        3. 使用 ngx_core_dump 获取调用栈
+
+  - id: segfault_backtrace
+    pattern: "SIGSEGV.*handler"
+    severity: critical
+    fix:
+      type: suggest
+      message: |
+        Nginx 段错误信号处理
+        启用 coredump:
+        1. worker_rlimit_core 500M;
+        2. working_directory /tmp/cores;
+        3. gdb nginx core
+
+  # ============================================================================
+  # Nginx 启动错误
+  # ============================================================================
+  - id: nginx_bind_failed
+    pattern: "bind\\(\\) to ([0-9.]+):([0-9]+) failed"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        端口绑定失败: $1:$2
+        解决:
+        1. 检查端口占用: netstat -tlnp | grep $2
+        2. 杀死占用进程或更换端口
+        3. 使用 reuseport: listen 80 reuseport;
+
+  - id: nginx_permission_denied
+    pattern: "Permission denied"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        权限拒绝
+        检查:
+        1. 端口 < 1024 需要 root
+        2. 文件权限: chmod/chown
+        3. SELinux: setsebool -P httpd_can_network_connect 1
+
+  - id: nginx_no_host
+    pattern: "host not found in upstream"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        upstream 主机未找到
+        检查 DNS 解析或使用 resolver 指令:
+        resolver 8.8.8.8 valid=300s;
+
+  - id: nginx_worker_exited
+    pattern: "worker process ([0-9]+) exited on signal ([0-9]+)"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        Worker 进程异常退出
+        信号 $2 分析:
+        - 11 (SIGSEGV): 段错误，检查 C 代码
+        - 6 (SIGABRT): 断言失败，检查日志
+        - 9 (SIGKILL): 内存不足被杀
+
+  # ============================================================================
+  # 内存错误
+  # ============================================================================
+  - id: memory_out_of_memory
+    pattern: "ngx_palloc.*failed"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        Nginx 内存池分配失败
+        检查:
+        1. 内存泄漏: valgrind --leak-check=full nginx
+        2. 增加系统内存
+        3. 减小 worker_processes
+
+  - id: memory_leak
+    pattern: "memory leak detected"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        内存泄漏检测
+        使用 Valgrind 定位:
+        valgrind --leak-check=full --show-leak-kinds=all nginx
+
+  # ============================================================================
+  # 配置错误
+  # ============================================================================
+  - id: config_unknown_directive
+    pattern: "unknown directive \"([^\"]+)\""
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        未知指令: $1
+        检查:
+        1. 拼写是否正确
+        2. 是否需要加载模块: load_module modules/ngx_http_xxx_module.so;
+        3. 指令所在上下文是否正确
+
+  - id: config_invalid_param
+    pattern: "invalid parameter \"([^\"]+)\""
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        无效参数: $1
+        检查参数格式和取值范围
+
+  - id: config_duplicate
+    pattern: "duplicate location \"([^\"]+)\""
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        重复的 location: $1
+        合并或删除重复配置
+
+  # ============================================================================
+  # SSL/TLS 错误
+  # ============================================================================
+  - id: ssl_cert_not_found
+    pattern: "SSL: cannot load certificate"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        SSL 证书加载失败
+        检查:
+        1. 证书文件路径是否正确
+        2. 证书格式: openssl x509 -in cert.pem -text -noout
+        3. 证书权限: chmod 644 cert.pem
+
+  - id: ssl_handshake_failed
+    pattern: "SSL_do_handshake\\(\\) failed"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        SSL 握手失败
+        检查:
+        1. 协议版本: ssl_protocols TLSv1.2 TLSv1.3;
+        2. 密码套件: ssl_ciphers HIGH:!aNULL:!MD5;
+        3. 客户端证书验证设置
+
+  # ============================================================================
+  # LuaJIT 运行时错误
+  # ============================================================================
+  - id: luajit_oom
+    pattern: "LuaJIT out of memory"
+    severity: critical
+    fix:
+      type: suggest
+      message: |
+        LuaJIT 内存不足
+        解决:
+        1. 增加 lua_vm_max_size
+        2. 检查 Lua 代码内存泄漏
+        3. 使用 resty --shdict 检查共享字典
+
+  - id: luajit_trace_error
+    pattern: "trace too long|NYI"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        LuaJIT JIT 编译问题
+        优化:
+        1. 简化热点循环
+        2. 避免不支持的 Lua 5.2 特性
+        3. jit.off() 关键路径禁用 JIT

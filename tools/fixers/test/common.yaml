@@ -1,0 +1,247 @@
+# 测试失败通用修复规则
+# Test::Nginx 和单元测试问题诊断
+
+version: "1.0"
+language: test
+
+rules:
+  # ============================================================================
+  # Test::Nginx 框架错误
+  # ============================================================================
+  - id: prove_not_found
+    pattern: "prove: command not found|'prove' is not recognized"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        prove 命令未安装
+        安装 Test::Nginx:
+        cpan Test::Nginx
+        # 或 Ubuntu
+        apt install libtest-nginx-perl
+
+  - id: nginx_not_found
+    pattern: "Can't find nginx in PATH|nginx: command not found"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        nginx 未找到
+        设置环境变量:
+        export PATH=/usr/local/openresty/nginx/sbin:$PATH
+        # 或 Test::Nginx 配置
+        $ENV{TEST_NGINX_BINARY} = '/path/to/nginx';
+
+  - id: test_nginx_timeout
+    pattern: "TEST_NGINX.*timeout|timed out"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        测试超时
+        增加超时时间:
+        $ENV{TEST_NGINX_TIMEOUT} = 30;
+        # 或测试文件中
+        --- timeout: 30
+
+  # ============================================================================
+  # 测试断言失败
+  # ============================================================================
+  - id: assert_status_failed
+    pattern: "status: ([0-9]+)\\s+expected: ([0-9]+)"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        HTTP 状态码断言失败
+        实际: $1, 期望: $2
+        检查:
+        1. 请求路径和方法
+        2. 认证/授权配置
+        3. upstream 服务状态
+
+  - id: assert_body_mismatch
+    pattern: "body\\s+got:.*expected:"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        响应体不匹配
+        使用 --- response_body_like 正则匹配
+        或检查响应格式（JSON/HTML）
+
+  - id: assert_header_failed
+    pattern: "header\\s+got:.*expected:"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        响应头不匹配
+        检查:
+        1. header_filter 阶段逻辑
+        2. add_header 指令
+        3. 使用 --- response_headers_like
+
+  # ============================================================================
+  # 测试环境错误
+  # ============================================================================
+  - id: env_port_in_use
+    pattern: "address already in use|port ([0-9]+) is already in use"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        端口被占用: $1
+        解决:
+        1. 杀死占用进程: lsof -i :$1
+        2. 更换测试端口: --- port: 1985
+        3. 等待端口释放
+
+  - id: env_permission_denied
+    pattern: "Permission denied"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        权限被拒绝
+        检查:
+        1. 文件权限
+        2. 端口 < 1024 需要 root
+        3. SELinux/AppArmor 设置
+
+  - id: env_no_space
+    pattern: "No space left on device"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        磁盘空间不足
+        清理测试产物:
+        rm -rf t/servroot_*
+        # 或设置临时目录
+        $ENV{TEST_NGINX_SERVROOT} = '/tmp/ngx_test';
+
+  # ============================================================================
+  # 测试配置错误
+  # ============================================================================
+  - id: config_invalid
+    pattern: "nginx: \\[emerg\\] (.+)"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        Nginx 配置错误: $1
+        检查 --- http_config 和 --- config 部分
+
+  - id: config_lua_error
+    pattern: "nginx: \\[error\\] .*lua.*"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        Lua 配置/初始化错误
+        检查:
+        1. lua_package_path 设置
+        2. init_by_lua 阶段代码
+        3. 模块加载
+
+  # ============================================================================
+  # 测试用例语法错误
+  # ============================================================================
+  - id: syntax_yaml_error
+    pattern: "YAML Error: (.+)"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        YAML 语法错误: $1
+        检查:
+        1. 缩进是否正确（使用空格）
+        2. 特殊字符转义
+        3. 多行字符串格式
+
+  - id: syntax_test_block
+    pattern: "No test block found|empty test"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        测试块缺失
+        Test::Nginx 格式:
+        === TEST 1: test name
+        --- config
+        --- request
+        --- response_body
+
+  # ============================================================================
+  # 通用测试错误
+  # ============================================================================
+  - id: test_skipped
+    pattern: "skipped: (.+)"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        测试跳过: $1
+        检查跳过条件:
+        --- skip_nginx: 4: < 1.19.0
+        --- skip_eval: 5: $ENV{SKIP_SLOW_TESTS}
+
+  - id: test_todo
+    pattern: "TODO: (.+)"
+    severity: info
+    fix:
+      type: suggest
+      message: |
+        待办测试: $1
+        标记已知失败:
+        --- todo: bug description
+
+  - id: test_no_plan
+    pattern: "No plan"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        测试计划缺失
+        添加:
+        use Test::Nginx::Socket 'no_plan';
+        # 或指定测试数量
+        plan tests => 10;
+
+  # ============================================================================
+  # 日志分析
+  # ============================================================================
+  - id: log_error_found
+    pattern: "\\[error\\] (.+)"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        错误日志: $1
+        查看完整日志:
+        cat t/servroot_*/logs/error.log
+        # 或在测试中检查
+        --- error_log
+        --- no_error_log
+
+  - id: log_crit_found
+    pattern: "\\[crit\\] (.+)"
+    severity: critical
+    fix:
+      type: suggest
+      message: |
+        严重错误: $1
+        通常是配置或资源问题
+
+  - id: log_alert_found
+    pattern: "\\[alert\\] (.+)"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        警告日志: $1
+        检查:
+        1. 共享内存使用
+        2. 连接池状态
+        3. worker 进程

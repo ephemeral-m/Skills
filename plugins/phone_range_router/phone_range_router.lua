@@ -14,10 +14,7 @@ local ERR = ngx.ERR
 local INFO = ngx.INFO
 local WARN = ngx.WARN
 local DEBUG = ngx.DEBUG
-local var = ngx.var
-local ctx = ngx.ctx
 local req = ngx.req
-local header = ngx.header
 local re = ngx.re
 
 ------------------------------------------------------------------------------
@@ -95,32 +92,32 @@ function _M.prerouting()
     local phone = req.get_headers()[config.header_name]
     if phone then
         if type(phone) == "table" then phone = phone[1] end
-        ctx.phone = phone
-        ctx.phone_num = phone_to_number(phone)
+        ngx.ctx.phone = phone
+        ngx.ctx.phone_num = phone_to_number(phone)
     end
     return true
 end
 
 function _M.postrouting()
-    local phone_num = ctx.phone_num
+    local phone_num = ngx.ctx.phone_num
     local target = config.default_upstream
 
     if phone_num then
         target = find_upstream(phone_num) or config.default_upstream
-        log(DEBUG, "[", _M._NAME, "] phone=", ctx.phone, " -> ", target)
-    elseif ctx.phone then
-        log(WARN, "[", _M._NAME, "] invalid phone format: ", ctx.phone)
+        log(DEBUG, "[", _M._NAME, "] phone=", ngx.ctx.phone, " -> ", target)
+    elseif ngx.ctx.phone then
+        log(WARN, "[", _M._NAME, "] invalid phone format: ", ngx.ctx.phone)
     end
 
-    var.upstream = target
+    ngx.var.upstream = target
     return true
 end
 
 function _M.header_filter()
-    if ctx.phone then
-        header["X-Phone"] = ctx.phone
+    if ngx.ctx.phone then
+        ngx.header["X-Phone"] = ngx.ctx.phone
     end
-    header["X-Upstream"] = var.upstream
+    ngx.header["X-Upstream"] = ngx.var.upstream
 end
 
 return _M

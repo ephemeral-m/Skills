@@ -1,0 +1,98 @@
+# =============================================================================
+# phone_range_router 插件配置
+# =============================================================================
+#
+# 使用方法:
+#   1. 将 plugins/phone_range_router 目录复制到 OpenResty lualib 目录:
+#      cp -r plugins/phone_range_router /usr/local/openresty/lualib/
+#
+#   2. 在 nginx.conf 的 http 块中 include 此文件:
+#      http {
+#          include /usr/local/openresty/lualib/phone_range_router/nginx.conf.example;
+#      }
+#
+#   3. 或直接将此文件内容复制到你的 http 块中
+#
+# =============================================================================
+
+# Lua 模块搜索路径
+# $prefix 指向 nginx 运行目录，通常为 /usr/local/openresty/nginx
+lua_package_path "$prefix/../lualib/?.lua;;";
+
+# =============================================================================
+# 上游服务器定义 - 根据实际环境修改
+# =============================================================================
+upstream backend_a {
+    server 192.168.1.10:8080;
+    keepalive 32;
+}
+
+upstream backend_b {
+    server 192.168.2.10:8080;
+    keepalive 32;
+}
+
+upstream default_backend {
+    server 192.168.100.10:8080;
+    keepalive 32;
+}
+
+# =============================================================================
+# 插件初始化 - 在 worker 进程启动时加载配置
+# =============================================================================
+init_worker_by_lua_block {
+    local plugin = require "phone_range_router.phone_range_router"
+    local ok, err = plugin.init_worker({
+        ranges = {
+            {min = "13000000000", max = "13999999999", upstream = "backend_a"},
+            {min = "15000000000", max = "15999999999", upstream = "backend_b"}
+        },
+        default_upstream = "default_backend",
+        header_name = "phone-number"
+    })
+    if not ok then
+        ngx.log(ngx.ERR, "[phone_range_router] init failed: ", err)
+    end
+}
+
+# =============================================================================
+# 服务器配置
+# =============================================================================
+server {
+    listen 80;
+    server_name localhost;
+
+    # 动态路由目标变量
+    set $upstream default_backend;
+
+    # 主业务接口
+    location /api/ {
+        # 请求预处理：提取手机号
+        rewrite_by_lua_block {
+            require("phone_range_router.phone_range_router").prerouting()
+        }
+
+        # 路由决策：选择上游
+        access_by_lua_block {
+            require("phone_range_router.phone_range_router").postrouting()
+        }
+
+        # 响应头处理：添加调试信息
+        header_filter_by_lua_block {
+            require("phone_range_router.phone_range_router").header_filter()
+        }
+
+        # 代理到选中的上游
+        proxy_pass http://$upstream;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    # 健康检查端点
+    location = /health {
+        access_log off;
+        return 200 "OK\n";
+        add_header Content-Type text/plain;
+    }
+}

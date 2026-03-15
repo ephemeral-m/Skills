@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Dev CLI - 通用 AI 开发框架
 
@@ -10,8 +11,10 @@ Dev CLI - 通用 AI 开发框架
 """
 
 import argparse
+import io
 import json
 import os
+import re
 import subprocess
 import sys
 import time
@@ -19,6 +22,11 @@ import yaml
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List
+
+# 修复 Windows 终端中文编码问题
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 try:
     import paramiko
@@ -32,6 +40,7 @@ PROJECT_ROOT = TOOLS_DIR.parent.resolve()
 SCRIPTS_DIR = TOOLS_DIR / "scripts"
 RESULTS_DIR = TOOLS_DIR / "results"
 CONFIG_PATH = TOOLS_DIR / "config" / "dev.yaml"
+FIXERS_DIR = TOOLS_DIR / "fixers"
 
 # 颜色
 C = {'R': '\033[0;31m', 'G': '\033[0;32m', 'Y': '\033[1;33m', 'B': '\033[0;34m', 'N': '\033[0m'}
@@ -41,6 +50,317 @@ def log_w(m): print(f"{C['Y']}[WARN]{C['N']} {m}")
 def log_e(m): print(f"{C['R']}[ERROR]{C['N']} {m}", file=sys.stderr)
 
 
+def clean_ansi(text: str) -> str:
+    """移除 ANSI 颜色码"""
+    return re.sub(r'\033\[[0-9;]*m', '', text)
+
+
+def format_output(text: str) -> str:
+    """格式化输出：清理颜色码，去除多余空行"""
+    text = clean_ansi(text)
+    lines = [line.rstrip() for line in text.split('\n')]
+    result = []
+    prev_empty = False
+    for line in lines:
+        is_empty = not line.strip()
+        if is_empty:
+            if not prev_empty:
+                result.append('')
+            prev_empty = True
+        else:
+            result.append(line)
+            prev_empty = False
+    while result and not result[0].strip():
+        result.pop(0)
+    while result and not result[-1].strip():
+        result.pop()
+    return '\n'.join(result)
+
+
+def escape_json_string(s: str) -> str:
+    """转义 JSON 字符串中的特殊字符"""
+    return s.replace('\\', '\\\\').replace('"', '\\"').replace('\t', '\\t')
+
+
+class ErrorAnalyzer:
+    """错误分析器 - 渐进式加载 YAML 规则匹配"""
+
+    def __init__(self):
+        self.rules = {'compile': {}, 'runtime': {}, 'test': {}}
+        self._loaded = False
+
+    def _load_all_rules(self):
+        """加载所有 YAML 规则文件"""
+        if self._loaded:
+            return
+
+        for error_type in ['compile', 'runtime', 'test']:
+            type_dir = FIXERS_DIR / error_type
+            if type_dir.exists():
+                for yaml_file in type_dir.glob('*.yaml'):
+                    try:
+                        with open(yaml_file, 'r', encoding='utf-8') as f:
+                            data = yaml.safe_load(f)
+                            lang = data.get('language', 'unknown')
+                            if lang not in self.rules[error_type]:
+                                self.rules[error_type][lang] = []
+                            self.rules[error_type][lang].extend(data.get('rules', []))
+                    except Exception as e:
+                        log_w(f"加载规则失败: {yaml_file}: {e}")
+
+        self._loaded = True
+
+    def analyze(self, error_type: str, output: str) -> Dict[str, Any]:
+        """
+        分析错误输出，匹配规则
+
+        Args:
+            error_type: 'compile', 'runtime', 'test'
+            output: 错误输出文本
+
+        Returns:
+            {'matched': bool, 'errors': list, 'suggestions': str}
+        """
+        self._load_all_rules()
+
+        matched_errors = []
+        languages = self.rules.get(error_type, {})
+
+        for lang, rules in languages.items():
+            for rule in rules:
+                pattern = rule.get('pattern', '')
+                try:
+                    regex = re.compile(pattern, re.MULTILINE | re.IGNORECASE)
+                    for match in regex.finditer(output):
+                        suggestion = rule.get('fix', {}).get('message', '')
+                        # 变量替换 $1, $2...
+                        for i, g in enumerate(match.groups(), 1):
+                            if g:
+                                suggestion = suggestion.replace(f'${i}', str(g))
+
+                        matched_errors.append({
+                            'id': rule.get('id', 'unknown'),
+                            'severity': rule.get('severity', 'error'),
+                            'match': match.group(0)[:200],  # 限制长度
+                            'suggestion': suggestion,
+                            'language': lang
+                        })
+                except re.error:
+                    continue
+
+        # 按严重程度排序
+        severity_order = {'critical': 0, 'error': 1, 'warning': 2, 'info': 3}
+        matched_errors.sort(key=lambda x: severity_order.get(x['severity'], 4))
+
+        # 格式化建议
+        suggestions = self._format_suggestions(matched_errors)
+
+        return {
+            'matched': len(matched_errors) > 0,
+            'errors': matched_errors[:10],  # 限制输出数量
+            'suggestions': suggestions
+        }
+
+    def _format_suggestions(self, errors: List[Dict]) -> str:
+        """格式化错误建议输出"""
+        if not errors:
+            return ''
+
+        lines = []
+        lines.append(f"\n{C['Y']}=== 错误分析 ==={C['N']}")
+
+        for i, err in enumerate(errors[:5], 1):
+            sev = err['severity']
+            sev_color = {'critical': C['R'], 'error': C['R'], 'warning': C['Y'], 'info': C['B']}.get(sev, C['N'])
+            lines.append(f"\n{i}. [{sev_color}{sev.upper()}{C['N']}] {err['id']}")
+            lines.append(f"   匹配: {err['match'][:100]}...")
+            lines.append(f"   建议: {err['suggestion'][:300]}")
+
+        if len(errors) > 5:
+            lines.append(f"\n   ... 还有 {len(errors) - 5} 个匹配项")
+
+        return '\n'.join(lines)
+
+    def suggest_fix_skill(self, error_type: str) -> str:
+        """建议对应的 fix skill"""
+        skill_map = {
+            'compile': '/fix-compile',
+            'runtime': '/fix-runtime',
+            'test': '/fix-test'
+        }
+        return skill_map.get(error_type, '/fix-loop')
+
+
+class Pipeline:
+    """开发流水线 - 执行 sync → build → test"""
+
+    # 步骤描述配置
+    STEP_INFO = {
+        'sync': {'desc': '同步代码到远程服务器', 'short': '同步'},
+        'build': {'desc': '编译构建项目', 'short': '构建'},
+        'test': {'desc': 'Lua语法 → Nginx配置 → Test::Nginx用例', 'short': '测试'}
+    }
+
+    def __init__(self, cli: 'DevCLI'):
+        self.cli = cli
+        self.analyzer = ErrorAnalyzer()
+
+    def run_all(self, module: str = None, stop_on_failure: bool = True) -> int:
+        """
+        执行完整流水线
+
+        Args:
+            module: 模块名称，None 表示全部
+            stop_on_failure: 失败时是否停止
+
+        Returns:
+            退出码
+        """
+        steps = [
+            ('sync', self._step_sync),
+            ('build', self._step_build),
+            ('test', self._step_test)
+        ]
+
+        results = {}
+        start_time = time.time()
+
+        print(f"\n{C['B']}{'='*60}{C['N']}")
+        print(f"{C['B']}Dev Pipeline: sync → build → test{C['N']}")
+        print(f"{C['B']}{'='*60}{C['N']}\n")
+
+        for step_name, step_func in steps:
+            info = self.STEP_INFO.get(step_name, {'desc': step_name, 'short': step_name})
+            print(f"{C['B']}[STEP]{C['N']} {step_name}: {info['desc']}")
+
+            step_start = time.time()
+            exit_code, output = step_func(module)
+            step_duration = time.time() - step_start
+
+            results[step_name] = {
+                'code': exit_code,
+                'output': output,
+                'duration': step_duration,
+                'desc': info['desc']
+            }
+
+            if exit_code != 0:
+                print(f"{C['R']}  ✗ 失败{C['N']} | 耗时: {step_duration:.2f}s | exit code: {exit_code}")
+
+                # 分析错误
+                analysis = self.analyzer.analyze(step_name, output)
+                if analysis['matched']:
+                    print(analysis['suggestions'])
+                    print(f"\n{C['Y']}建议调用: {self.analyzer.suggest_fix_skill(step_name)}{C['N']}")
+                else:
+                    print(f"\n{C['Y']}未匹配到已知错误模式，建议调用: {self.analyzer.suggest_fix_skill(step_name)}{C['N']}")
+
+                if stop_on_failure:
+                    self._print_summary(results, time.time() - start_time, failed=True)
+                    return exit_code
+            else:
+                print(f"{C['G']}  ✓ 完成{C['N']} | 耗时: {step_duration:.2f}s")
+
+        self._print_summary(results, time.time() - start_time, failed=False)
+        return 0
+
+    def _step_sync(self, module: str = None) -> tuple:
+        """同步步骤"""
+        success = self.cli.sync()
+        output = "同步成功" if success else "同步失败"
+        return (0, output) if success else (1, output)
+
+    def _step_build(self, module: str = None) -> tuple:
+        """构建步骤"""
+        import io
+        from contextlib import redirect_stdout, redirect_stderr
+
+        # 捕获输出
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+
+        # 执行构建
+        old_exit = sys.exit
+        sys.exit = lambda x: x  # 防止 sys.exit 终止
+
+        try:
+            with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+                # 临时修改输出
+                result = self.cli.cmd_build(module)
+        finally:
+            sys.exit = old_exit
+
+        output = stdout_buf.getvalue() + stderr_buf.getvalue()
+
+        # 读取结果文件
+        result_file = RESULTS_DIR / "build-openresty.json"
+        if result_file.exists():
+            try:
+                with open(result_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    output = '\n'.join(data.get('output', [])) + '\n'.join(data.get('error_output', []))
+            except:
+                pass
+
+        return (result, output)
+
+    def _step_test(self, module: str = None) -> tuple:
+        """测试步骤"""
+        import io
+        from contextlib import redirect_stdout, redirect_stderr
+
+        stdout_buf = io.StringIO()
+        stderr_buf = io.StringIO()
+
+        old_exit = sys.exit
+        sys.exit = lambda x: x
+
+        try:
+            with redirect_stdout(stdout_buf), redirect_stderr(stderr_buf):
+                result = self.cli.cmd_test(module)
+        finally:
+            sys.exit = old_exit
+
+        output = stdout_buf.getvalue() + stderr_buf.getvalue()
+
+        # 读取结果文件
+        for pattern in ["test-openresty.json", "test-dt.json"]:
+            result_file = RESULTS_DIR / pattern
+            if result_file.exists():
+                try:
+                    with open(result_file, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        output = '\n'.join(data.get('output', [])) + '\n'.join(data.get('error_output', []))
+                except:
+                    pass
+
+        return (result, output)
+
+    def _print_summary(self, results: Dict, duration: float, failed: bool):
+        """打印执行摘要"""
+        print(f"\n{C['B']}{'='*60}{C['N']}")
+        print(f"{C['B']}Pipeline 摘要{C['N']}")
+        print(f"{C['B']}{'='*60}{C['N']}")
+
+        status_icon = f"{C['R']}✗{C['N']}" if failed else f"{C['G']}✓{C['N']}"
+        status_text = '失败' if failed else '成功'
+        print(f"\n状态: {status_icon} {status_text} | 总耗时: {duration:.2f}s")
+
+        print(f"\n{'步骤':<8} {'状态':<6} {'耗时':<10} {'描述'}")
+        print(f"{'-'*60}")
+
+        for step, data in results.items():
+            icon = f"{C['G']}✓{C['N']}" if data['code'] == 0 else f"{C['R']}✗{C['N']}"
+            status = f"{icon} 完成" if data['code'] == 0 else f"{icon} 失败"
+            duration_str = f"{data.get('duration', 0):.2f}s"
+            desc = data.get('desc', step)
+            # 计算对齐
+            status_plain = "完成" if data['code'] == 0 else "失败"
+            print(f"{step:<8} {status} {duration_str:<10} {desc}")
+
+        print()
+
+
 class DevCLI:
     def __init__(self):
         self.config = self._load_config()
@@ -48,7 +368,7 @@ class DevCLI:
 
     def _load_config(self) -> Dict[str, Any]:
         if not CONFIG_PATH.exists():
-            log_e(f"配置文件不存在: {CONFIG_PATH}")
+            log_e(f"Config file not found: {CONFIG_PATH}")
             sys.exit(1)
         with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
             return yaml.safe_load(f)
@@ -130,7 +450,6 @@ class DevCLI:
         )
         workdir = self.remote.get('workdir', '')
 
-        # 如果有 path，设置 MODULE_PATH 环境变量
         if path:
             cmd = f"export MODULE_PATH='{path}' && cd {workdir} && {cmd}"
         else:
@@ -175,18 +494,28 @@ class DevCLI:
                 log_e(f"模块 '{name}' 未配置 build 命令")
                 return 1
             result = self.exec_remote(cmd, cwd)
-            print(result["stdout"])
-            if result["stderr"]:
-                print(result["stderr"], file=sys.stderr)
             self._save_result("build", name, result)
-            if not result["success"]:
+
+            if result["success"]:
+                output = format_output(result["stdout"])
+                if output:
+                    print(output)
+                log_s(f"构建成功: {name}")
+            else:
+                if result["stdout"]:
+                    print(format_output(result["stdout"]))
+                if result["stderr"]:
+                    print(format_output(result["stderr"]), file=sys.stderr)
                 log_e(f"构建失败: {name}")
                 return result["returncode"]
 
-        log_s("构建完成")
         return 0
 
-    def cmd_test(self, module: str = None) -> int:
+    def cmd_test(self, module: str = None, dt_file: str = None) -> int:
+        # 如果指定了 --dt 参数，运行 Test::Nginx 测试
+        if dt_file is not None:
+            return self._run_dt_tests(dt_file)
+
         log_i("开始测试...")
         modules = self.config.get('modules', {})
         if module:
@@ -202,16 +531,49 @@ class DevCLI:
             if not cmd:
                 continue
             result = self.exec_remote(cmd, cwd)
-            print(result["stdout"])
-            if result["stderr"]:
-                print(result["stderr"], file=sys.stderr)
             self._save_result("test", name, result)
-            if not result["success"]:
+
+            if result["success"]:
+                output = format_output(result["stdout"])
+                if output:
+                    print(output)
+                log_s(f"测试通过: {name}")
+            else:
+                if result["stdout"]:
+                    print(format_output(result["stdout"]))
+                if result["stderr"]:
+                    print(format_output(result["stderr"]), file=sys.stderr)
                 log_e(f"测试失败: {name}")
                 return result["returncode"]
 
-        log_s("测试通过")
         return 0
+
+    def _run_dt_tests(self, dt_file: str = '') -> int:
+        """运行 Test::Nginx 测试"""
+        log_i("开始 DT 测试...")
+
+        # 构建测试命令
+        if dt_file:
+            cmd = f"bash tools/scripts/test.sh --dt {dt_file}"
+        else:
+            cmd = "bash tools/scripts/test.sh --dt"
+
+        result = self.exec_remote(cmd, None)
+        self._save_result("test", "dt", result)
+
+        if result["success"]:
+            output = format_output(result["stdout"])
+            if output:
+                print(output)
+            log_s("DT 测试通过")
+        else:
+            if result["stdout"]:
+                print(format_output(result["stdout"]))
+            if result["stderr"]:
+                print(format_output(result["stderr"]), file=sys.stderr)
+            log_e("DT 测试失败")
+
+        return result["returncode"]
 
     def cmd_sync(self) -> int:
         return 0 if self.sync() else 1
@@ -226,39 +588,165 @@ class DevCLI:
                     print(f"  {'✓' if data.get('success') else '✗'} {f.stem}")
         return 0
 
+    def cmd_analyze(self, error_type: str, result_file: str = None) -> int:
+        """分析错误输出"""
+        analyzer = ErrorAnalyzer()
+
+        # 读取结果文件
+        if result_file:
+            path = Path(result_file)
+        else:
+            # 查找最新的结果文件
+            patterns = {
+                'compile': 'build-*.json',
+                'runtime': 'test-*.json',
+                'test': 'test-*.json'
+            }
+            pattern = patterns.get(error_type, '*.json')
+            files = sorted(RESULTS_DIR.glob(pattern), key=lambda x: x.stat().st_mtime, reverse=True)
+            if not files:
+                log_e("未找到结果文件")
+                return 1
+            path = files[0]
+
+        if not path.exists():
+            log_e(f"结果文件不存在: {path}")
+            return 1
+
+        log_i(f"分析文件: {path}")
+
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+        except Exception as e:
+            log_e(f"读取文件失败: {e}")
+            return 1
+
+        # 合并输出
+        output_parts = []
+        if data.get('output'):
+            output_parts.extend(data['output'] if isinstance(data['output'], list) else [data['output']])
+        if data.get('error_output'):
+            output_parts.extend(data['error_output'] if isinstance(data['error_output'], list) else [data['error_output']])
+        output = '\n'.join(output_parts)
+
+        if not output:
+            log_w("结果文件为空或成功")
+            return 0
+
+        # 分析
+        result = analyzer.analyze(error_type, output)
+
+        if result['matched']:
+            print(result['suggestions'])
+            print(f"\n{C['Y']}建议调用: {analyzer.suggest_fix_skill(error_type)}{C['N']}")
+            return 0
+        else:
+            log_w("未匹配到已知错误模式")
+            print(f"\n{C['Y']}建议调用: {analyzer.suggest_fix_skill(error_type)}{C['N']}")
+            return 0
+
     def _save_result(self, cmd_type: str, module: str, result: Dict):
         RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-        data = {
-            "command": cmd_type, "module": module, "exit_code": result["returncode"],
-            "duration": result["duration"], "success": result["success"],
-            "output": result["stdout"], "error_output": result["stderr"],
-            "timestamp": result["timestamp"]
-        }
+
+        output = format_output(result["stdout"])
+        error_output = format_output(result["stderr"])
+
+        lines = [
+            "{",
+            f'  "command": "{cmd_type}",',
+            f'  "module": "{module}",',
+            f'  "exit_code": {result["returncode"]},',
+            f'  "duration": {round(result["duration"], 2)},',
+            f'  "success": {str(result["success"]).lower()},',
+        ]
+
+        # output 字段为数组，每行一个元素
+        if output:
+            output_lines = [escape_json_string(line) for line in output.split('\n')]
+            lines.append('  "output": [')
+            for i, line in enumerate(output_lines):
+                comma = ',' if i < len(output_lines) - 1 else ''
+                lines.append(f'    "{line}"{comma}')
+            lines.append('  ],')
+        else:
+            lines.append('  "output": [],')
+
+        # error_output 字段
+        if error_output:
+            error_lines = [escape_json_string(line) for line in error_output.split('\n')]
+            lines.append('  "error_output": [')
+            for i, line in enumerate(error_lines):
+                comma = ',' if i < len(error_lines) - 1 else ''
+                lines.append(f'    "{line}"{comma}')
+            lines.append('  ],')
+        else:
+            lines.append('  "error_output": [],')
+
+        lines.append(f'  "timestamp": "{result["timestamp"]}"')
+        lines.append("}")
+
         path = RESULTS_DIR / f"{cmd_type}-{module}.json"
         with open(path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+            f.write('\n'.join(lines))
         log_i(f"结果: {path.name}")
 
 
 def main():
     parser = argparse.ArgumentParser(description='Dev CLI - 通用开发框架')
-    parser.add_argument('command', nargs='?', default='help')
-    parser.add_argument('module', nargs='?', default=None)
+    subparsers = parser.add_subparsers(dest='command', help='可用命令')
+
+    # all 子命令 - 执行完整流水线
+    all_parser = subparsers.add_parser('all', help='执行完整流水线 (sync → build → test)')
+    all_parser.add_argument('module', nargs='?', default=None, help='模块名称')
+    all_parser.add_argument('--continue-on-error', '-c', action='store_true',
+                            help='失败时继续执行后续步骤')
+
+    # build 子命令
+    build_parser = subparsers.add_parser('build', help='构建模块')
+    build_parser.add_argument('module', nargs='?', default=None, help='模块名称')
+
+    # test 子命令
+    test_parser = subparsers.add_parser('test', help='运行测试')
+    test_parser.add_argument('module', nargs='?', default=None, help='模块名称')
+    test_parser.add_argument('--dt', '-d', nargs='?', const='', default=None,
+                             metavar='FILE', help='运行 Test::Nginx 用例')
+
+    # 其他命令
+    subparsers.add_parser('sync', help='同步代码到远程')
+    subparsers.add_parser('status', help='查看项目状态')
+
+    # analyze 子命令 - 分析错误
+    analyze_parser = subparsers.add_parser('analyze', help='分析错误输出')
+    analyze_parser.add_argument('type', choices=['compile', 'runtime', 'test'],
+                                help='错误类型')
+    analyze_parser.add_argument('file', nargs='?', default=None,
+                                help='结果文件路径 (默认读取最新结果)')
+
     args = parser.parse_args()
 
-    cli = DevCLI()
-    cmds = {
-        'build': lambda: cli.cmd_build(args.module),
-        'test': lambda: cli.cmd_test(args.module),
-        'sync': cli.cmd_sync,
-        'status': cli.cmd_status,
-        'help': parser.print_help
-    }
+    if not args.command:
+        parser.print_help()
+        sys.exit(0)
 
-    if args.command in cmds:
-        sys.exit(cmds[args.command]())
-    log_e(f"未知命令: {args.command}")
-    sys.exit(1)
+    cli = DevCLI()
+
+    if args.command == 'all':
+        pipeline = Pipeline(cli)
+        sys.exit(pipeline.run_all(args.module, stop_on_failure=not args.continue_on_error))
+    elif args.command == 'build':
+        sys.exit(cli.cmd_build(args.module))
+    elif args.command == 'test':
+        sys.exit(cli.cmd_test(args.module, args.dt))
+    elif args.command == 'sync':
+        sys.exit(cli.cmd_sync())
+    elif args.command == 'status':
+        sys.exit(cli.cmd_status())
+    elif args.command == 'analyze':
+        sys.exit(cli.cmd_analyze(args.type, args.file))
+    else:
+        parser.print_help()
+        sys.exit(1)
 
 
 if __name__ == '__main__':

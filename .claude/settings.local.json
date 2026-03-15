@@ -7,22 +7,46 @@
     "dev": {
       "path": ".claude/skills/dev",
       "description": "统一开发命令入口，执行 build/test/verify/clean 等工程任务",
-      "triggers": ["dev build", "dev test", "dev verify", "dev clean"]
+      "triggers": [
+        "dev build",
+        "dev test",
+        "dev verify",
+        "dev clean"
+      ]
     },
     "fix-compile": {
       "path": ".claude/skills/fix-compile",
       "description": "编译错误修复，支持 C/Lua (OpenResty)",
-      "triggers": ["compile error", "build failed", "undefined reference"]
+      "triggers": [
+        "compile error",
+        "build failed",
+        "undefined reference"
+      ]
     },
     "fix-test": {
       "path": ".claude/skills/fix-test",
       "description": "测试失败修复",
-      "triggers": ["test failed", "assertion failed", "FAILED"]
+      "triggers": [
+        "test failed",
+        "assertion failed",
+        "FAILED"
+      ]
     },
     "fix-runtime": {
       "path": ".claude/skills/fix-runtime",
       "description": "运行时错误修复，处理崩溃、异常等",
-      "triggers": ["segmentation fault", "panic", "exception"]
+      "triggers": [
+        "segmentation fault",
+        "panic",
+        "exception"
+      ]
     }
+  },
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)"
+    ]
   }
 }

@@ -13,9 +13,7 @@ tools/
 ├── scripts/
 │   ├── common.sh        # 公共函数
 │   ├── build.sh         # 构建脚本
-│   ├── clean.sh         # 清理脚本
 │   ├── test.sh          # 测试脚本
-│   └── verify.sh        # 验证脚本
 ├── fixers/
 │   └── compile/
 │       ├── c.yaml       # C/Nginx 错误规则

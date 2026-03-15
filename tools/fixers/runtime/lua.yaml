@@ -1,0 +1,254 @@
+# Lua/OpenResty 运行时错误自动修复规则
+# OpenResty Lua 运行时问题诊断
+
+version: "1.0"
+language: lua
+
+rules:
+  # ============================================================================
+  # OpenResty 运行时错误
+  # ============================================================================
+  - id: openresty_ctx_error
+    pattern: "API disabled in the context of ([^ ]+)"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        API 上下文错误: 在 $1 中禁用
+        正确上下文:
+        - ngx.req.*: rewrite, access, content
+        - ngx.location.capture: rewrite, access, content
+        - ngx.exit: 所有阶段
+        参考: https://openresty-reference.readthedocs.io/en/latest/Lua_Nginx_API/
+
+  - id: openresty_phase_error
+    pattern: "attempt to call ([^ ]+) in ([^ ]+) phase"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        阶段调用错误: $1 在 $2 阶段不可用
+        检查 by_lua 指令的使用位置
+
+  - id: openresty_connection_refused
+    pattern: "connection refused"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        连接被拒绝
+        检查:
+        1. 目标服务是否运行
+        2. 端口是否正确
+        3. 防火墙设置
+
+  # ============================================================================
+  # Cosocket 错误
+  # ============================================================================
+  - id: cosocket_timeout
+    pattern: "timeout"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        Cosocket 超时
+        设置超时时间:
+        sock:settimeout(1000) -- 1秒
+        或 nginx.conf: lua_socket_timeout 10s;
+
+  - id: cosocket_closed
+    pattern: "closed"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        Cosocket 已关闭
+        检查:
+        1. 请求结束后 socket 自动关闭
+        2. 显式调用 sock:close() 后不能再使用
+        3. 使用 set_keepalive 复用连接
+
+  - id: cosocket_not_allowed
+    pattern: "cosocket not allowed in this context"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        Cosocket 上下文限制
+        允许: rewrite_by_lua, access_by_lua, content_by_lua
+        禁止: set_by_lua, log_by_lua, header_filter_by_lua
+        解决: 将 cosocket 调用移到允许的阶段
+
+  # ============================================================================
+  # 共享字典错误
+  # ============================================================================
+  - id: shm_not_found
+    pattern: "shared dict \"([^\"]+)\" not found"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        共享字典未定义: $1
+        nginx.conf 添加: lua_shared_dict $1 10m;
+
+  - id: shm_no_memory
+    pattern: "no memory in shared dict"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        共享字典内存不足
+        解决:
+        1. 增大: lua_shared_dict name 100m;
+        2. 添加 LRU 淘汰逻辑
+        3. 检查内存泄漏
+
+  - id: shm_locked
+    pattern: "busy|locked"
+    severity: warning
+    fix:
+      type: suggest
+      message: |
+        共享字典繁忙
+        使用 exptime 参数或增加重试逻辑
+
+  # ============================================================================
+  # Lua 协程错误
+  # ============================================================================
+  - id: coroutine_yield
+    pattern: "attempt to yield across C-call boundary"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        协程跨越 C 边界 yield
+        解决:
+        1. 避免 Lua 标准库函数中 yield
+        2. 使用 ngx.sleep(0) 替代 yield
+
+  - id: coroutine_dead
+    pattern: "cannot resume dead coroutine"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        协程已结束
+        检查协程是否已经返回或出错
+
+  # ============================================================================
+  # 正则表达式错误
+  # ============================================================================
+  - id: regex_pcre_error
+    pattern: "pcre_exec\\(\\) failed: (-?[0-9]+)"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        PCRE 执行失败: 错误码 $1
+        常见错误:
+        - -1: 部分匹配
+        - -10: 内存不足
+        检查正则表达式复杂度
+
+  - id: regex_compile_error
+    pattern: "pcre_compile\\(\\) failed"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        正则编译失败
+        检查:
+        1. 正则语法是否正确
+        2. 转义特殊字符
+        3. 使用 ngx.re.match(str, regex, "jo") 测试
+
+  # ============================================================================
+  # JSON 处理错误
+  # ============================================================================
+  - id: json_encode_error
+    pattern: "Cannot serialise ([^:]+): ([^ ]+)"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        JSON 编码失败: $1
+        cjson 无法编码:
+        - function
+        - thread
+        - lightuserdata
+        使用自定义 encoder 或过滤这些类型
+
+  - id: json_decode_error
+    pattern: "Expected value but found ([^ ]+)|JSON parse error"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        JSON 解码失败
+        检查:
+        1. JSON 格式是否有效
+        2. 尾部逗号问题
+        3. 注释（标准 JSON 不支持）
+
+  # ============================================================================
+  # 时间和日期错误
+  # ============================================================================
+  - id: time_format_error
+    pattern: "invalid time format"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        时间格式错误
+        使用标准格式:
+        ngx.parse_http_time("Thu, 27 Feb 2025 00:00:00 GMT")
+
+  # ============================================================================
+  # 请求处理错误
+  # ============================================================================
+  - id: request_body_not_read
+    pattern: "request body not read yet"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        请求体未读取
+        先调用:
+        ngx.req.read_body()
+        local body = ngx.req.get_body_data()
+
+  - id: request_too_large
+    pattern: "client intended to send too large body"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        请求体过大
+        增大限制:
+        client_max_body_size 100m;
+        client_body_buffer_size 128k;
+
+  # ============================================================================
+  # 子请求错误
+  # ============================================================================
+  - id: capture_error
+    pattern: "location capture error"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        location capture 错误
+        检查:
+        1. location 是否存在
+        2. 内部 location 使用 internal;
+        3. 捕获次数限制: lua_max_pending_timers
+
+  - id: capture_timeout
+    pattern: "subrequest capture timed out"
+    severity: error
+    fix:
+      type: suggest
+      message: |
+        子请求超时
+        设置超时:
+        ngx.location.capture("/uri", { timeout = 5000 })
