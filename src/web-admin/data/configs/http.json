@@ -9,12 +9,6 @@
         {
           "port": 80,
           "ssl": false
-        },
-        {
-          "port": 443,
-          "ssl": true,
-          "certificate": "/etc/nginx/ssl/example.crt",
-          "certificate_key": "/etc/nginx/ssl/example.key"
         }
       ],
       "root": "/var/www/html",

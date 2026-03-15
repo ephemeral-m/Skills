@@ -75,7 +75,7 @@ architecture_patterns:
       - "JSON 配置存储 (web-admin/data/configs/)"
       - "配置生成器 (generator.lua)"
       - "部署控制器 (deploy.lua)"
-      - "生产实例 (openresty-prod/)"
+      - "负载均衡 (loadbalance/)"
     data_flow:
       - "用户修改配置 (前端表单)"
       - "API 保存 JSON (POST /api/config/:domain)"
@@ -94,13 +94,13 @@ architecture_patterns:
   # 管理控制台与生产分离
   admin_prod_separation:
     name: "管理控制台与生产分离"
-    description: "web-admin 作为管理控制台，openresty-prod 作为生产实例"
+    description: "web-admin 作为管理控制台，loadbalance 作为负载均衡实例"
     components:
       - "管理控制台 (web-admin, 端口 8080/8081)"
-      - "生产实例 (openresty-prod, 端口 80/443)"
+      - "负载均衡 (loadbalance, 端口 80/443)"
     separation_points:
       - "配置管理在控制台完成"
-      - "生产实例只负责流量转发"
+      - "负载均衡实例只负责流量转发"
       - "配置变更通过部署 API 应用"
     benefits:
       - "管理操作不影响生产流量"

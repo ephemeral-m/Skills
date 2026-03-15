@@ -80,7 +80,7 @@ architecture_abstraction:
 [feedback] 检测到架构设计变更：
 
 新增内容:
-  - 目录: src/openresty-prod/
+  - 目录: src/loadbalance/
   - 数据流: JSON → generator.lua → nginx.conf
   - API: POST /api/deploy/apply
 

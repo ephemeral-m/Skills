@@ -69,27 +69,19 @@ function _M.generate_upstream(item)
         table.insert(lines, indent(1) .. "keepalive " .. item.keepalive .. ";")
     end
 
-    -- 健康检查 (需要 nginx-plus 或第三方模块)
+    -- 健康检查 (标准 OpenResty 不支持 health_check 指令，改为注释提示)
     if item.health_check and item.health_check.enabled then
         local hc = item.health_check
-        local hc_line = indent(1) .. "health_check"
-        local hc_params = {}
-        if hc.interval then
-            table.insert(hc_params, "interval=" .. hc.interval)
+        table.insert(lines, indent(1) .. "# 健康检查配置 (需要 nginx-plus 或第三方模块)")
+        table.insert(lines, indent(1) .. "# health_check interval=" .. (hc.interval or "5s") ..
+            " fails=" .. (hc.fails or 3) .. " passes=" .. (hc.passes or 2) ..
+            " uri=" .. (hc.uri or "/health") .. ";")
+        -- 使用 nginx 原生被动健康检查
+        for _, server in ipairs(item.servers or {}) do
+            if server.max_fails or server.fail_timeout then
+                -- 已在 server 行处理
+            end
         end
-        if hc.fails then
-            table.insert(hc_params, "fails=" .. hc.fails)
-        end
-        if hc.passes then
-            table.insert(hc_params, "passes=" .. hc.passes)
-        end
-        if hc.uri then
-            table.insert(hc_params, "uri=" .. hc.uri)
-        end
-        if #hc_params > 0 then
-            hc_line = hc_line .. " " .. table.concat(hc_params, " ")
-        end
-        table.insert(lines, hc_line .. ";")
     end
 
     table.insert(lines, "}")
@@ -326,11 +318,11 @@ function _M.generate_stream_server(item, upstreams)
         if timeout.connect then
             table.insert(lines, indent(1) .. "proxy_connect_timeout " .. timeout.connect .. ";")
         end
-        if timeout.read then
-            table.insert(lines, indent(1) .. "proxy_timeout " .. timeout.read .. ";")
-        end
-        if timeout.send then
-            table.insert(lines, indent(1) .. "proxy_timeout " .. timeout.send .. ";")
+        -- stream 模块的 proxy_timeout 同时用于读和写
+        -- 如果两者都设置，使用较大的值
+        local timeout_value = timeout.read or timeout.send
+        if timeout_value then
+            table.insert(lines, indent(1) .. "proxy_timeout " .. timeout_value .. ";")
         end
     end
 

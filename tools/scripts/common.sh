@@ -17,8 +17,8 @@ OPENRESTY_SRC="$SRC_DIR/openresty"
 LUA_PLUGINS_DIR="$SRC_DIR/lua-plugins"
 WEB_ADMIN_DIR="$SRC_DIR/web-admin"
 
-# 生产 OpenResty 目录
-OPENRESTY_PROD_DIR="$SRC_DIR/openresty-prod"
+# 负载均衡实例目录 (原 openresty-prod)
+LOADBALANCE_DIR="$SRC_DIR/loadbalance"
 
 # 构建目录
 BUILD_DIR="$PROJECT_ROOT/build"
@@ -206,96 +206,100 @@ stop_nginx() {
 }
 
 # ============================================================
-# 生产 OpenResty 相关函数
+# 负载均衡实例相关函数
 # ============================================================
 
-# 获取生产 nginx PID 文件路径
-get_prod_nginx_pid_file() {
-    echo "$OPENRESTY_PROD_DIR/logs/nginx.pid"
+# 获取负载均衡 nginx PID 文件路径
+get_loadbalance_pid_file() {
+    echo "$LOADBALANCE_DIR/logs/nginx.pid"
 }
 
-# 检查生产 nginx 是否运行
-is_prod_running() {
+# 检查负载均衡 nginx 是否运行
+is_loadbalance_running() {
     local pid_file
-    pid_file=$(get_prod_nginx_pid_file)
+    pid_file=$(get_loadbalance_pid_file)
     [[ -f "$pid_file" ]] || return 1
     local pid
     pid=$(cat "$pid_file" 2>/dev/null)
     [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
 }
 
-# 启动生产 nginx
-start_nginx_prod() {
-    local conf_file="$OPENRESTY_PROD_DIR/nginx.conf"
+# 启动负载均衡 nginx
+start_nginx_loadbalance() {
+    local conf_file="$LOADBALANCE_DIR/nginx.conf"
 
     if [[ ! -f "$conf_file" ]]; then
-        log_error "生产配置文件不存在: $conf_file"
+        log_error "负载均衡配置文件不存在: $conf_file"
         return 1
     fi
 
     # 创建必要目录
-    mkdir -p "$OPENRESTY_PROD_DIR/logs"
-    mkdir -p "$OPENRESTY_PROD_DIR/conf.d"
-    mkdir -p "$OPENRESTY_PROD_DIR/deploy_history"
+    mkdir -p "$LOADBALANCE_DIR/logs"
+    mkdir -p "$LOADBALANCE_DIR/conf.d"
+    mkdir -p "$LOADBALANCE_DIR/deploy_history"
+
+    # 设置目录权限，允许 nginx worker 写入
+    chmod -R 777 "$LOADBALANCE_DIR/logs" 2>/dev/null || true
+    chmod -R 777 "$LOADBALANCE_DIR/deploy_history" 2>/dev/null || true
 
     # 设置 Lua 模块路径
     export LUA_PATH="$OPENRESTY_PREFIX/lualib/?.lua;$LUA_PLUGINS_DIR/?.lua;;"
     export LUA_CPATH="$OPENRESTY_PREFIX/lualib/?.so;;"
 
     # 测试配置
-    log_info "验证生产配置..."
-    if ! "$NGINX_BIN" -t -p "$OPENRESTY_PROD_DIR" -c nginx.conf 2>&1; then
-        log_error "生产配置验证失败"
+    log_info "验证负载均衡配置..."
+    if ! "$NGINX_BIN" -t -p "$LOADBALANCE_DIR" -c nginx.conf 2>&1; then
+        log_error "负载均衡配置验证失败"
         return 1
     fi
 
     # 启动 nginx
-    log_info "启动生产 OpenResty..."
-    "$NGINX_BIN" -p "$OPENRESTY_PROD_DIR" -c nginx.conf
+    log_info "启动负载均衡 OpenResty..."
+    "$NGINX_BIN" -p "$LOADBALANCE_DIR" -c nginx.conf
     local ret=$?
 
     if [[ $ret -eq 0 ]]; then
-        log_success "生产 OpenResty 已启动 (端口: 80/443)"
+        log_success "负载均衡已启动 (端口: 80/443)"
     fi
     return $ret
 }
 
-# 停止生产 nginx
-stop_nginx_prod() {
+# 停止负载均衡 nginx
+stop_nginx_loadbalance() {
     local pid_file
-    pid_file=$(get_prod_nginx_pid_file)
+    pid_file=$(get_loadbalance_pid_file)
 
     if [[ -f "$pid_file" ]]; then
         local pid
         pid=$(cat "$pid_file" 2>/dev/null)
         if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-            log_info "停止生产 Nginx (PID: $pid)..."
+            log_info "停止负载均衡 (PID: $pid)..."
             kill -QUIT "$pid" 2>/dev/null || true
             sleep 1
             return 0
         else
-            log_warn "生产 Nginx 未运行 (PID 文件过期)"
+            log_warn "负载均衡未运行 (PID 文件过期)"
             rm -f "$pid_file"
         fi
     fi
     return 1
 }
 
-# 重载生产 nginx 配置
-reload_nginx_prod() {
+# 重载负载均衡 nginx 配置
+reload_nginx_loadbalance() {
     local pid_file
-    pid_file=$(get_prod_nginx_pid_file)
+    pid_file=$(get_loadbalance_pid_file)
 
     if [[ -f "$pid_file" ]]; then
         local pid
         pid=$(cat "$pid_file" 2>/dev/null)
         if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-            log_info "重载生产 Nginx 配置 (PID: $pid)..."
+            log_info "重载负载均衡配置 (PID: $pid)..."
             kill -HUP "$pid" 2>/dev/null
             return $?
         fi
     fi
-    log_warn "生产 Nginx 未运行"
+    log_warn "负载均衡未运行"
     return 1
 }
 

@@ -29,7 +29,7 @@ description: Web-Admin 前端到后端的架构设计和开发指南。当用户
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                 Production OpenResty (80/443)                   │
+│                 LoadBalance OpenResty (80/443)                  │
 │  - nginx.conf (自动生成)                                        │
 │  - lua-plugins/* (插件集成)                                     │
 └─────────────────────────────────────────────────────────────────┘
@@ -74,7 +74,7 @@ src/
 │       ├── upstream.json
 │       └── location.json
 │
-├── openresty-prod/                # 生产 OpenResty 实例
+├── loadbalance/                  # 负载均衡实例 (端口 80/443)
 │   ├── nginx.conf                 # 主配置
 │   ├── conf.d/                    # 自动生成的配置
 │   └── deploy_history/            # 部署历史
@@ -475,4 +475,4 @@ JSON 配置 → 配置生成器 → nginx.conf → 重载生效
 | `src/web-admin/backend/lualib/admin/generator.lua` | 配置生成器 |
 | `src/web-admin/backend/lualib/admin/deploy.lua` | 部署控制 |
 | `src/web-admin/data/configs/*.json` | JSON 配置存储 |
-| `src/openresty-prod/nginx.conf` | 生产实例主配置 |
+| `src/loadbalance/nginx.conf` | 负载均衡主配置 |

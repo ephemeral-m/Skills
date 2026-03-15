@@ -16,7 +16,12 @@ log_info "=========================================="
 
 stopped=0
 
-# 停止 OpenResty
+# 停止负载均衡 (端口 80/443)
+if stop_nginx_loadbalance; then
+    stopped=$((stopped + 1))
+fi
+
+# 停止 web-admin OpenResty
 if stop_nginx; then
     stopped=$((stopped + 1))
 fi
