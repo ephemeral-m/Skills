@@ -408,7 +408,8 @@ class DevCLI:
             ssh.exec_command(f"mkdir -p {workdir}")[1].read()
 
             buf = io.BytesIO()
-            with tarfile.open(fileobj=buf, mode='w:gz') as tar:
+            # 使用 UTF-8 编码确保中文文件名正确
+            with tarfile.open(fileobj=buf, mode='w:gz', encoding='utf-8') as tar:
                 for item in PROJECT_ROOT.iterdir():
                     if not any(fnmatch.fnmatch(item.name, p.rstrip('/')) for p in exclude):
                         tar.add(item, arcname=item.name)
@@ -418,6 +419,7 @@ class DevCLI:
             tmp = f"{workdir}/.sync.tar.gz"
             with io.BytesIO(buf.getvalue()) as b:
                 sftp.putfo(b, tmp)
+            # 解压时指定 UTF-8 编码
             ssh.exec_command(f"cd {workdir} && tar -xzf {tmp} && rm -f {tmp}")[1].read()
             sftp.close()
             ssh.close()
@@ -588,6 +590,40 @@ class DevCLI:
                     print(f"  {'✓' if data.get('success') else '✗'} {f.stem}")
         return 0
 
+    def cmd_run(self) -> int:
+        """启动服务（远程执行）"""
+        log_i("启动服务...")
+        result = self.exec_remote("bash tools/scripts/run.sh")
+        if result["success"]:
+            output = format_output(result["stdout"])
+            if output:
+                print(output)
+            log_s("服务启动成功")
+        else:
+            if result["stdout"]:
+                print(format_output(result["stdout"]))
+            if result["stderr"]:
+                print(format_output(result["stderr"]), file=sys.stderr)
+            log_e("服务启动失败")
+        return result["returncode"]
+
+    def cmd_stop(self) -> int:
+        """停止服务（远程执行）"""
+        log_i("停止服务...")
+        result = self.exec_remote("bash tools/scripts/stop.sh")
+        if result["success"]:
+            output = format_output(result["stdout"])
+            if output:
+                print(output)
+            log_s("服务停止成功")
+        else:
+            if result["stdout"]:
+                print(format_output(result["stdout"]))
+            if result["stderr"]:
+                print(format_output(result["stderr"]), file=sys.stderr)
+            log_e("服务停止失败")
+        return result["returncode"]
+
     def cmd_analyze(self, error_type: str, result_file: str = None) -> int:
         """分析错误输出"""
         analyzer = ErrorAnalyzer()
@@ -715,6 +751,8 @@ def main():
     # 其他命令
     subparsers.add_parser('sync', help='同步代码到远程')
     subparsers.add_parser('status', help='查看项目状态')
+    subparsers.add_parser('run', help='启动服务')
+    subparsers.add_parser('stop', help='停止服务')
 
     # analyze 子命令 - 分析错误
     analyze_parser = subparsers.add_parser('analyze', help='分析错误输出')
@@ -742,6 +780,10 @@ def main():
         sys.exit(cli.cmd_sync())
     elif args.command == 'status':
         sys.exit(cli.cmd_status())
+    elif args.command == 'run':
+        sys.exit(cli.cmd_run())
+    elif args.command == 'stop':
+        sys.exit(cli.cmd_stop())
     elif args.command == 'analyze':
         sys.exit(cli.cmd_analyze(args.type, args.file))
     else:

@@ -1,0 +1,86 @@
+# 可复用模式库
+# 记录在开发过程中发现的最佳实践和解决方案
+
+# ============================================================
+# OpenResty/Web-Admin 相关
+# ============================================================
+
+openresty:
+  paths:
+    build_dir: "build/openresty"
+    nginx_bin: "build/openresty/nginx/sbin/nginx"
+    backend_logs: "src/web-admin/backend/logs"
+    configs: "src/web-admin/data/configs"
+
+  common_issues:
+    - id: nginx-location-order
+      pattern: ["api.*504", "api.*404", "proxy_pass.*vite"]
+      cause: "location /api/ 定义在 location / 之后，导致 API 请求被代理到 Vite"
+      fix: "将 location /api/ 移到 location / 之前"
+
+    - id: ngx-start-time
+      pattern: ["attempt to call field 'start_time'", "ngx.start_time"]
+      cause: "ngx_lua 没有 ngx.start_time() 函数"
+      fix: "使用 ngx.shared.status 存储启动时间"
+
+    - id: nobody-permission
+      pattern: ["Permission denied", "nobody user"]
+      cause: "nginx worker 以 nobody 用户运行，无法访问用户目录"
+      fix: "chmod o+rx /home/username 或调整文件权限"
+
+# ============================================================
+# Shell 脚本相关
+# ============================================================
+
+shell:
+  bash_set_e_issue:
+    pattern: ["set -e", "((var++))", "exit code 1"]
+    cause: "在 set -e 模式下，((var++)) 当 var=0 时返回 1，导致脚本退出"
+    fix: "使用 var=$((var + 1)) 替代 ((var++))"
+
+  path_detection:
+    best_practice: |
+      # 获取脚本所在目录的通用方法
+      SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+      PROJECT_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+
+  utf8_encoding:
+    issue: "Windows 上 tarfile 同步 UTF-8 文件到 Linux 出现乱码"
+    fix: "tarfile.open(..., encoding='utf-8')"
+
+# ============================================================
+# Vue/Vite 前端相关
+# ============================================================
+
+vite:
+  external_access:
+    issue: "Vite 默认只监听 localhost，外部无法访问"
+    fix: |
+      server: {
+        host: '0.0.0.0',
+        hmr: { host: 'actual-ip' }
+      }
+
+  proxy_config:
+    pattern: "API 请求 404/504"
+    fix: |
+      proxy: {
+        '/api': { target: 'http://localhost:8080', changeOrigin: true }
+      }
+
+# ============================================================
+# 开发流程相关
+# ============================================================
+
+workflow:
+  remote_dev:
+    steps:
+      - "/dev sync    # 同步代码"
+      - "/dev build   # 构建"
+      - "/dev run     # 启动服务"
+      - "/dev stop    # 停止服务"
+
+    troubleshooting:
+      - "服务启动失败: 检查日志 logs/error.log"
+      - "API 无响应: 检查 nginx.conf 路由顺序"
+      - "权限错误: 检查 nobody 用户权限"

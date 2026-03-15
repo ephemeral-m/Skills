@@ -46,7 +46,8 @@
     "allow": [
       "Bash(python:*)",
       "WebSearch",
-      "WebFetch(domain:github.com)"
+      "WebFetch(domain:github.com)",
+      "Bash(ssh:*)"
     ]
   }
 }

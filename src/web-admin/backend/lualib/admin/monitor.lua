@@ -13,13 +13,22 @@ end
 
 -- 获取 Nginx 状态
 local function get_nginx_status()
+    -- 从共享字典获取启动时间
+    local status_dict = ngx.shared.status
+    local start_time = status_dict and status_dict:get("start_time") or ngx.now()
+
+    -- 如果是第一次访问，记录启动时间
+    if status_dict and not status_dict:get("start_time") then
+        status_dict:set("start_time", ngx.now())
+    end
+
     local status = {
         version = ngx.config.nginx_version,
         ngx_lua_version = ngx.config.ngx_lua_version,
         worker_processes = ngx.worker.count() or 1,
         worker_id = ngx.worker.id() or 0,
         pid = ngx.worker.pid() or 0,
-        uptime = ngx.start_time() and (ngx.now() - ngx.start_time()) or 0,
+        uptime = ngx.now() - start_time,
         hostname = ngx.var.hostname or "",
         prefix = ngx.config.prefix()
     }

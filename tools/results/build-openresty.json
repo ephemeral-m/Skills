@@ -2,16 +2,16 @@
   "command": "build",
   "module": "openresty",
   "exit_code": 0,
-  "duration": 137.65,
+  "duration": 142.26,
   "success": true,
   "output": [
     "[配置] 开始...",
-    "[配置] 完成 (88.0s)",
+    "[配置] 完成 (94.9s)",
     "[编译] 开始...",
     "  并行数: 4",
-    "[编译] 完成 (48.0s)",
+    "[编译] 完成 (45.2s)",
     "[安装] 开始...",
-    "[安装] 完成 (1.3s)",
+    "[安装] 完成 (2.0s)",
     "[验证] 开始...",
     "  二进制: /home/mxp/Skills/build/openresty/nginx/sbin/nginx",
     "[验证] 完成 (0.0s)",
@@ -22,5 +22,5 @@
     "configure arguments: --prefix=/home/mxp/Skills/build/openresty/nginx --with-cc-opt=-O2 --add-module=../ngx_devel_kit-0.3.4 --add-module=../echo-nginx-module-0.63 --add-module=../xss-nginx-module-0.06 --add-module=../ngx_coolkit-0.2 --add-module=../set-misc-nginx-module-0.33 --add-module=../form-input-nginx-module-0.12 --add-module=../encrypted-session-nginx-module-0.09 --add-module=../srcache-nginx-module-0.33 --add-module=../ngx_lua-0.10.29R2 --add-module=../ngx_lua_upstream-0.07 --add-module=../headers-more-nginx-module-0.39 --add-module=../array-var-nginx-module-0.06 --add-module=../memc-nginx-module-0.20 --add-module=../redis2-nginx-module-0.15 --add-module=../redis-nginx-module-0.41 --add-module=../rds-json-nginx-module-0.17 --add-module=../rds-csv-nginx-module-0.10 --add-module=../ngx_stream_lua-0.0.17R4 --with-ld-opt=-Wl,-rpath,/home/mxp/Skills/build/openresty/luajit/lib --with-http_ssl_module --with-http_v2_module --with-http_v3_module --with-stream --with-stream_ssl_module --with-stream_ssl_preread_module --with-http_realip_module --with-http_gzip_static_module --with-http_stub_status_module --with-http_auth_request_module --with-stream"
   ],
   "error_output": [],
-  "timestamp": "2026-03-15T18:15:44.586042"
+  "timestamp": "2026-03-15T20:41:56.027721"
 }

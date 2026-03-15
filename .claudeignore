@@ -9,3 +9,4 @@ src/build
 src/patch
 src/util
 test/test_nginx
+.docx

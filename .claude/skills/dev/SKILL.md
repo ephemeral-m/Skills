@@ -15,6 +15,8 @@ description: 统一开发命令入口，零 Token 消耗执行 build/test/verify
 /dev build [module]            # 编译指定模块或全部
 /dev test [module]             # 测试指定模块或全部
 /dev test --dt [file]          # 运行 Test::Nginx 测试用例
+/dev run                       # 启动服务
+/dev stop                      # 停止服务
 /dev sync                      # 同步代码到远程服务器
 /dev status                    # 查看项目状态
 /dev analyze <type> [file]     # 分析错误输出
@@ -39,6 +41,13 @@ sync → build → test
 
 - `module`: 指定模块名，不指定则执行全部模块
 - `-c, --continue-on-error`: 失败时继续执行后续步骤
+
+### 服务管理
+
+- `/dev run`: 启动本地开发服务（前台运行）
+- `/dev stop`: 停止本地开发服务
+
+服务启动/停止的具体实现由 `tools/scripts/run.sh` 和 `tools/scripts/stop.sh` 封装。
 
 ## 测试说明
 
