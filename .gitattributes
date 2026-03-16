@@ -1,0 +1,49 @@
+# Auto detect text files and normalize to LF
+* text=auto eol=lf
+
+# Shell scripts - always LF
+*.sh text eol=lf
+
+# Python files
+*.py text eol=lf
+
+# Lua files
+*.lua text eol=lf
+
+# Test::Nginx files
+*.t text eol=lf
+
+# Config files
+*.conf text eol=lf
+*.yaml text eol=lf
+*.yml text eol=lf
+*.json text eol=lf
+
+# Web files
+*.js text eol=lf
+*.ts text eol=lf
+*.vue text eol=lf
+*.css text eol=lf
+*.html text eol=lf
+
+# Documentation
+*.md text eol=lf
+*.txt text eol=lf
+
+# C/C++ source
+*.c text eol=lf
+*.h text eol=lf
+*.cc text eol=lf
+*.cpp text eol=lf
+
+# Binary files (no normalization)
+*.so binary
+*.o binary
+*.a binary
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.zip binary
+*.tar.gz binary
