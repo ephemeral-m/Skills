@@ -9,7 +9,8 @@
 set -e
 
 # 配置
-API_BASE="${API_BASE:-http://192.168.5.14:8080}"
+# API_BASE 可通过环境变量覆盖，默认使用本地开发服务器
+API_BASE="${API_BASE:-http://127.0.0.1:8080}"
 TEST_PORT_START=9000
 TEST_PORT_END=9100
 

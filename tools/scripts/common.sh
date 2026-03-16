@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 #
 # 公共函数和常量
-# 所有脚本应该 source 此文件
 #
 
 # ============================================================
@@ -17,7 +16,7 @@ OPENRESTY_SRC="$SRC_DIR/openresty"
 LUA_PLUGINS_DIR="$SRC_DIR/lua-plugins"
 WEB_ADMIN_DIR="$SRC_DIR/web-admin"
 
-# 负载均衡实例目录 (原 openresty-prod)
+# 负载均衡实例目录
 LOADBALANCE_DIR="$SRC_DIR/loadbalance"
 
 # 构建目录
@@ -57,31 +56,6 @@ log_step()    { echo -e "${CYAN}[STEP]${NC} $*"; }
 # 工具函数
 # ============================================================
 
-# 执行命令，失败时打印错误并退出
-run() {
-    "$@"
-    local ret=$?
-    if [[ $ret -ne 0 ]]; then
-        log_error "命令失败 (exit $ret): $*"
-        exit $ret
-    fi
-}
-
-# 静默执行：成功时无输出，失败时显示错误
-run_silent() {
-    local log_file
-    log_file=$(mktemp)
-    trap "rm -f '$log_file'" RETURN
-
-    "$@" >> "$log_file" 2>&1
-    local ret=$?
-    if [[ $ret -ne 0 ]]; then
-        cat "$log_file"
-        log_error "命令失败 (exit $ret): $*"
-    fi
-    return $ret
-}
-
 # 获取并行数
 get_jobs() {
     echo "${JOBS:-$(nproc 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 4)}"
@@ -92,34 +66,15 @@ has_cmd() {
     command -v "$1" &>/dev/null
 }
 
-# 等待端口可用
-wait_port() {
-    local port=$1 timeout=${2:-10}
-    local i=0
-    while [[ $i -lt $timeout ]]; do
-        if has_cmd nc && nc -z localhost "$port" 2>/dev/null; then
-            return 0
-        elif has_cmd ss && ss -tln | grep -q ":$port "; then
-            return 0
-        elif has_cmd netstat && netstat -tln 2>/dev/null | grep -q ":$port "; then
-            return 0
-        fi
-        sleep 1
-        ((i++))
-    done
-    return 1
-}
-
 # 检查进程是否运行
 is_running() {
     local pid_file=$1
     [[ -f "$pid_file" ]] || return 1
-    local pid
-    pid=$(cat "$pid_file" 2>/dev/null)
+    local pid=$(cat "$pid_file" 2>/dev/null)
     [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
 }
 
-# 获取端口对应的主进程 PID (只返回第一个)
+# 获取端口对应的 PID
 get_pid_by_port() {
     local port=$1 pid
     if has_cmd lsof; then
@@ -140,12 +95,10 @@ check_openresty_built() {
         log_error "OpenResty 未构建，请先运行: /dev build"
         return 1
     fi
-    return 0
 }
 
 # 获取 nginx PID 文件路径
 get_nginx_pid_file() {
-    # 优先使用 web-admin 的 pid 文件
     if [[ -f "$BACKEND_LOGS_DIR/nginx.pid" ]]; then
         echo "$BACKEND_LOGS_DIR/nginx.pid"
     else
@@ -158,17 +111,10 @@ start_nginx_webadmin() {
     local backend_dir="$WEB_ADMIN_DIR/backend"
     local conf_file="$backend_dir/nginx.conf"
 
-    if [[ ! -f "$conf_file" ]]; then
-        log_error "配置文件不存在: $conf_file"
-        return 1
-    fi
+    [[ ! -f "$conf_file" ]] && log_error "配置文件不存在: $conf_file" && return 1
 
-    # 创建必要目录
-    mkdir -p "$BACKEND_LOGS_DIR"
-    mkdir -p "$CONFIGS_DIR"
-    mkdir -p "$CONFIGS_DIR/history"
+    mkdir -p "$BACKEND_LOGS_DIR" "$CONFIGS_DIR" "$CONFIGS_DIR/history"
 
-    # 设置 Lua 模块路径
     export LUA_PATH="$OPENRESTY_PREFIX/lualib/?.lua;$LUA_PLUGINS_DIR/?.lua;;"
     export LUA_CPATH="$OPENRESTY_PREFIX/lualib/?.so;;"
 
@@ -181,26 +127,18 @@ start_nginx_webadmin() {
 
 # 停止 nginx
 stop_nginx() {
-    local pid_file
-    pid_file=$(get_nginx_pid_file)
+    local pid_file=$(get_nginx_pid_file)
 
     if [[ -f "$pid_file" ]]; then
-        local pid
-        pid=$(cat "$pid_file" 2>/dev/null)
+        local pid=$(cat "$pid_file" 2>/dev/null)
         if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
             log_info "停止 Nginx (PID: $pid)..."
             "$NGINX_BIN" -s stop 2>/dev/null || kill "$pid" 2>/dev/null || true
             sleep 1
-            # 确认进程已停止
-            if kill -0 "$pid" 2>/dev/null; then
-                log_warn "Nginx 进程 $pid 仍在运行"
-                return 1
-            fi
             return 0
         else
             log_warn "Nginx 未运行 (PID 文件过期)"
             rm -f "$pid_file"
-            return 0  # 清理过期文件也算成功
         fi
     fi
     return 1
@@ -210,18 +148,11 @@ stop_nginx() {
 # 负载均衡实例相关函数
 # ============================================================
 
-# 获取负载均衡 nginx PID 文件路径
-get_loadbalance_pid_file() {
-    echo "$LOADBALANCE_DIR/logs/nginx.pid"
-}
-
 # 检查负载均衡 nginx 是否运行
 is_loadbalance_running() {
-    local pid_file
-    pid_file=$(get_loadbalance_pid_file)
+    local pid_file="$LOADBALANCE_DIR/logs/nginx.pid"
     [[ -f "$pid_file" ]] || return 1
-    local pid
-    pid=$(cat "$pid_file" 2>/dev/null)
+    local pid=$(cat "$pid_file" 2>/dev/null)
     [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null
 }
 
@@ -229,78 +160,37 @@ is_loadbalance_running() {
 start_nginx_loadbalance() {
     local conf_file="$LOADBALANCE_DIR/nginx.conf"
 
-    if [[ ! -f "$conf_file" ]]; then
-        log_error "负载均衡配置文件不存在: $conf_file"
-        return 1
-    fi
+    [[ ! -f "$conf_file" ]] && log_error "负载均衡配置文件不存在" && return 1
 
-    # 创建必要目录
-    mkdir -p "$LOADBALANCE_DIR/logs"
-    mkdir -p "$LOADBALANCE_DIR/conf.d"
-    mkdir -p "$LOADBALANCE_DIR/deploy_history"
+    mkdir -p "$LOADBALANCE_DIR/logs" "$LOADBALANCE_DIR/conf.d" "$LOADBALANCE_DIR/deploy_history"
+    chmod -R 777 "$LOADBALANCE_DIR/logs" "$LOADBALANCE_DIR/deploy_history" 2>/dev/null || true
 
-    # 设置目录权限，允许 nginx worker 写入
-    chmod -R 777 "$LOADBALANCE_DIR/logs" 2>/dev/null || true
-    chmod -R 777 "$LOADBALANCE_DIR/deploy_history" 2>/dev/null || true
-
-    # 设置 Lua 模块路径
     export LUA_PATH="$OPENRESTY_PREFIX/lualib/?.lua;$LUA_PLUGINS_DIR/?.lua;;"
     export LUA_CPATH="$OPENRESTY_PREFIX/lualib/?.so;;"
 
-    # 测试配置
     log_info "验证负载均衡配置..."
-    if ! "$NGINX_BIN" -t -p "$LOADBALANCE_DIR" -c nginx.conf 2>&1; then
-        log_error "负载均衡配置验证失败"
-        return 1
-    fi
+    "$NGINX_BIN" -t -p "$LOADBALANCE_DIR" -c nginx.conf 2>&1 || { log_error "配置验证失败"; return 1; }
 
-    # 启动 nginx
     log_info "启动负载均衡 OpenResty..."
-    "$NGINX_BIN" -p "$LOADBALANCE_DIR" -c nginx.conf
-    local ret=$?
-
-    if [[ $ret -eq 0 ]]; then
-        log_success "负载均衡已启动 (端口: 9000)"
-    fi
-    return $ret
+    "$NGINX_BIN" -p "$LOADBALANCE_DIR" -c nginx.conf && log_success "负载均衡已启动 (端口: 9000)"
 }
 
 # 停止负载均衡 nginx
 stop_nginx_loadbalance() {
-    local pid_file
-    pid_file=$(get_loadbalance_pid_file)
+    local pid_file="$LOADBALANCE_DIR/logs/nginx.pid"
 
     if [[ -f "$pid_file" ]]; then
-        local pid
-        pid=$(cat "$pid_file" 2>/dev/null)
+        local pid=$(cat "$pid_file" 2>/dev/null)
         if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
             log_info "停止负载均衡 (PID: $pid)..."
             kill -QUIT "$pid" 2>/dev/null || true
             sleep 1
             return 0
         else
-            log_warn "负载均衡未运行 (PID 文件过期)"
+            log_warn "负载均衡未运行"
             rm -f "$pid_file"
         fi
     fi
-    return 1
-}
-
-# 重载负载均衡 nginx 配置
-reload_nginx_loadbalance() {
-    local pid_file
-    pid_file=$(get_loadbalance_pid_file)
-
-    if [[ -f "$pid_file" ]]; then
-        local pid
-        pid=$(cat "$pid_file" 2>/dev/null)
-        if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
-            log_info "重载负载均衡配置 (PID: $pid)..."
-            kill -HUP "$pid" 2>/dev/null
-            return $?
-        fi
-    fi
-    log_warn "负载均衡未运行"
     return 1
 }
 
@@ -312,56 +202,28 @@ FRONTEND_DIR="$WEB_ADMIN_DIR/frontend"
 
 # 检查前端依赖
 check_frontend_deps() {
-    if [[ ! -d "$FRONTEND_DIR" ]]; then
-        log_warn "前端目录不存在: $FRONTEND_DIR"
-        return 1
-    fi
-    if [[ ! -f "$FRONTEND_DIR/package.json" ]]; then
-        log_warn "package.json 不存在"
-        return 1
-    fi
-    # 使用 bash -l 加载环境变量后检测 npm
-    if ! bash -l -c "command -v npm &>/dev/null"; then
-        log_warn "未安装 Node.js/npm"
-        return 1
-    fi
-    return 0
-}
-
-# 安装前端依赖
-install_frontend_deps() {
-    if [[ ! -d "$FRONTEND_DIR/node_modules" ]]; then
-        log_info "安装前端依赖..."
-        cd "$FRONTEND_DIR"
-        npm install --silent 2>/dev/null
-        cd "$PROJECT_ROOT"
-    fi
+    [[ -d "$FRONTEND_DIR" ]] || return 1
+    [[ -f "$FRONTEND_DIR/package.json" ]] || return 1
+    bash -l -c "command -v npm &>/dev/null" || return 1
 }
 
 # 构建前端静态文件
 build_frontend() {
-    # 检查是否需要构建
     local dist_dir="$FRONTEND_DIR/dist"
     local need_build=false
 
     if [[ ! -d "$dist_dir" ]]; then
         need_build=true
     else
-        # 检查源码是否比 dist 更新
-        local src_newer
-        src_newer=$(find "$FRONTEND_DIR/src" -newer "$dist_dir" 2>/dev/null | head -1)
-        if [[ -n "$src_newer" ]]; then
-            need_build=true
-        fi
+        local src_newer=$(find "$FRONTEND_DIR/src" -newer "$dist_dir" 2>/dev/null | head -1)
+        [[ -n "$src_newer" ]] && need_build=true
     fi
 
     if [[ "$need_build" == "true" ]]; then
-        if ! check_frontend_deps; then
-            log_warn "跳过前端构建 (缺少 Node.js)"
-            return 0
-        fi
+        check_frontend_deps || { log_warn "跳过前端构建"; return 0; }
 
-        install_frontend_deps
+        [[ ! -d "$FRONTEND_DIR/node_modules" ]] && { cd "$FRONTEND_DIR"; npm install --silent 2>/dev/null; cd "$PROJECT_ROOT"; }
+
         log_info "构建前端静态文件..."
         cd "$FRONTEND_DIR"
         npm run build --silent 2>/dev/null

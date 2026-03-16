@@ -1,11 +1,11 @@
 ---
 name: dev
-description: 统一开发命令入口，零 Token 消耗执行 build/test/verify/clean 等工程任务。当用户需要构建项目、运行测试、验证代码、清理构建产物、查看项目状态、同步代码到远程服务器时使用此 skill。
+description: 统一开发命令入口，零 Token 消耗执行 build/test/start/stop 等工程任务。当用户需要构建项目、运行测试、启动/停止服务、查看项目状态、同步代码到远程服务器时使用此 skill。
 ---
 
 # dev Slash Command
 
-统一开发命令入口，零 Token 消耗执行 build/test/verify/clean 等工程任务。
+统一开发命令入口，零 Token 消耗执行 build/test/start/stop 等工程任务。
 
 ## 跨平台开发模式
 
@@ -33,7 +33,7 @@ description: 统一开发命令入口，零 Token 消耗执行 build/test/verify
 ## 用法
 
 ```
-/dev all [module]              # 执行完整流水线 (sync → build → test)
+/dev all [module]              # 执行完整流水线 (sync → build → start → test)
 /dev all [module] -c           # 失败时继续执行后续步骤
 /dev build [module]            # 编译指定模块或全部
 /dev test [module]             # 测试指定模块或全部
@@ -50,9 +50,9 @@ description: 统一开发命令入口，零 Token 消耗执行 build/test/verify
 `/dev all` 执行完整开发流程:
 
 ```
-sync → build → test
-  │       │      │
-  └───────┴──────┴── 失败时自动分析错误
+sync → build → start → test
+  │       │       │      │
+  └───────┴───────┴──────┴── 失败时自动分析错误
 ```
 
 失败时会:
@@ -67,7 +67,7 @@ sync → build → test
 
 ### 服务管理
 
-- `/dev start`: 启动远程开发服务
+- `/dev start`: 启动远程开发服务 (负载均衡 + web-admin)
 - `/dev stop`: 停止远程开发服务
 
 **注意：** 服务启动/停止在远程 Linux 执行，由 `tools/scripts/start.sh` 和 `tools/scripts/stop.sh` 封装。
@@ -146,9 +146,9 @@ sync → build → test
 
 ```yaml
 remote:
-  host: 192.168.5.14
+  host: 192.168.168.218
   port: 22
-  user: root
+  user: m30020610
   password: 123456
-  workdir: /home/mxp/Skills
+  workdir: /home/m30020610/Skills
 ```

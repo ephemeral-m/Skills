@@ -3,6 +3,8 @@
 # 停止开发服务
 #
 
+set -e
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/common.sh"
 
@@ -25,16 +27,6 @@ fi
 if stop_nginx; then
     stopped=$((stopped + 1))
 fi
-
-# 尝试通过端口停止残留进程
-for port in 8080 9000; do
-    pid=$(get_pid_by_port "$port")
-    if [[ -n "$pid" ]]; then
-        log_info "发现端口 $port 进程 (PID: $pid)，正在停止..."
-        kill "$pid" 2>/dev/null || true
-        stopped=$((stopped + 1))
-    fi
-done
 
 # 输出结果
 log_info "=========================================="
