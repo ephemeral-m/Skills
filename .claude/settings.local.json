@@ -47,7 +47,9 @@
       "Bash(python:*)",
       "WebSearch",
       "WebFetch(domain:github.com)",
-      "Bash(ssh:*)"
+      "Bash(ssh:*)",
+      "Bash(python tools/bin/dev start)",
+      "Bash(python tools/bin/dev stop)"
     ]
   }
 }

@@ -38,7 +38,7 @@
 
 **注意事项：**
 
-- Windows 本地不要直接运行 Shell 脚本（`bash scripts/run.sh` 在 Windows 上会失败）
+- Windows 本地不要直接运行 Shell 脚本（`bash scripts/start.sh` 在 Windows 上会失败）
 - 使用 `/dev` 命令或 `python tools/bin/dev` 来执行远程操作
 - 脚本中的命令检查（如 `has_cmd`）在 Linux 环境执行
 - 文件权限问题在 Linux 环境处理
@@ -66,7 +66,7 @@ D:\Coding\Code\Dev\Skills\
 ├── tools/
 │   ├── bin/dev             # Python CLI
 │   ├── scripts/            # Shell 脚本
-│   │   ├── run.sh          # 启动服务 (web-admin + loadbalance)
+│   │   ├── start.sh         # 启动服务 (web-admin + loadbalance)
 │   │   └── stop.sh         # 停止服务
 │   ├── config/dev.yaml     # 配置文件
 │   └── fixers/             # 错误修复规则

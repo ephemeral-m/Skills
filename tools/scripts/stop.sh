@@ -11,12 +11,12 @@ source "$SCRIPT_DIR/common.sh"
 # ============================================================
 
 log_info "=========================================="
-log_info "停止开发服务"
+log_info "停止服务"
 log_info "=========================================="
 
 stopped=0
 
-# 停止负载均衡 (端口 80/443)
+# 停止负载均衡
 if stop_nginx_loadbalance; then
     stopped=$((stopped + 1))
 fi
@@ -27,7 +27,7 @@ if stop_nginx; then
 fi
 
 # 尝试通过端口停止残留进程
-for port in 8080 8081; do
+for port in 8080 9000; do
     pid=$(get_pid_by_port "$port")
     if [[ -n "$pid" ]]; then
         log_info "发现端口 $port 进程 (PID: $pid)，正在停止..."
@@ -35,11 +35,6 @@ for port in 8080 8081; do
         stopped=$((stopped + 1))
     fi
 done
-
-# 停止前端
-if stop_frontend; then
-    stopped=$((stopped + 1))
-fi
 
 # 输出结果
 log_info "=========================================="

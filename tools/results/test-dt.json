@@ -1,0 +1,10 @@
+{
+  "command": "test",
+  "module": "dt",
+  "exit_code": 1,
+  "duration": 0.1,
+  "success": false,
+  "output": [],
+  "error_output": [],
+  "timestamp": "2026-03-16T14:02:44.405034"
+}

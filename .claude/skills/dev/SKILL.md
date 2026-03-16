@@ -70,7 +70,7 @@ sync → build → test
 - `/dev start`: 启动远程开发服务
 - `/dev stop`: 停止远程开发服务
 
-**注意：** 服务启动/停止在远程 Linux 执行，由 `tools/scripts/run.sh` 和 `tools/scripts/stop.sh` 封装。
+**注意：** 服务启动/停止在远程 Linux 执行，由 `tools/scripts/start.sh` 和 `tools/scripts/stop.sh` 封装。
 
 ## 测试说明
 

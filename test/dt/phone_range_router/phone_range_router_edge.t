@@ -10,7 +10,7 @@ __DATA__
 
 === TEST 1: 边界值测试 - 区间最小值
 --- http_config
-    lua_package_path "$prefix/../../../../plugins/?.lua;;";
+    lua_package_path "$prefix/../../../../src/lua-plugins/?.lua;;";
 
     init_by_lua_block {
         local router = require "phone_range_router.phone_range_router"
@@ -58,7 +58,7 @@ upstream: backend_a
 
 === TEST 2: 边界值测试 - 区间最大值
 --- http_config
-    lua_package_path "$prefix/../../../../plugins/?.lua;;";
+    lua_package_path "$prefix/../../../../src/lua-plugins/?.lua;;";
 
     init_by_lua_block {
         local router = require "phone_range_router.phone_range_router"
@@ -106,7 +106,7 @@ upstream: backend_a
 
 === TEST 3: 边界值测试 - 小于区间最小值
 --- http_config
-    lua_package_path "$prefix/../../../../plugins/?.lua;;";
+    lua_package_path "$prefix/../../../../src/lua-plugins/?.lua;;";
 
     init_by_lua_block {
         local router = require "phone_range_router.phone_range_router"
@@ -154,7 +154,7 @@ upstream: default_backend
 
 === TEST 4: 边界值测试 - 大于区间最大值
 --- http_config
-    lua_package_path "$prefix/../../../../plugins/?.lua;;";
+    lua_package_path "$prefix/../../../../src/lua-plugins/?.lua;;";
 
     init_by_lua_block {
         local router = require "phone_range_router.phone_range_router"
@@ -202,7 +202,7 @@ upstream: default_backend
 
 === TEST 5: 多区间重叠测试 - 按min排序后匹配第一个
 --- http_config
-    lua_package_path "$prefix/../../../../plugins/?.lua;;";
+    lua_package_path "$prefix/../../../../src/lua-plugins/?.lua;;";
 
     init_by_lua_block {
         local router = require "phone_range_router.phone_range_router"
@@ -251,7 +251,7 @@ upstream: wide_range
 
 === TEST 6: 无效手机号格式 - 长度不足11位
 --- http_config
-    lua_package_path "$prefix/../../../../plugins/?.lua;;";
+    lua_package_path "$prefix/../../../../src/lua-plugins/?.lua;;";
 
     init_by_lua_block {
         local router = require "phone_range_router.phone_range_router"
@@ -299,7 +299,7 @@ invalid phone format
 
 === TEST 7: 无效手机号格式 - 长度超过11位
 --- http_config
-    lua_package_path "$prefix/../../../../plugins/?.lua;;";
+    lua_package_path "$prefix/../../../../src/lua-plugins/?.lua;;";
 
     init_by_lua_block {
         local router = require "phone_range_router.phone_range_router"

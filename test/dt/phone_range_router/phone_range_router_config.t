@@ -10,7 +10,7 @@ __DATA__
 
 === TEST 1: 配置验证 - 缺少 upstream 字段
 --- http_config
-    lua_package_path "$prefix/../../../../plugins/?.lua;;";
+    lua_package_path "$prefix/../../../../src/lua-plugins/?.lua;;";
 
     init_by_lua_block {
         local router = require "phone_range_router.phone_range_router"
@@ -38,7 +38,7 @@ upstream required
 
 === TEST 2: 配置验证 - 无效的 min 格式
 --- http_config
-    lua_package_path "$prefix/../../../../plugins/?.lua;;";
+    lua_package_path "$prefix/../../../../src/lua-plugins/?.lua;;";
 
     init_by_lua_block {
         local router = require "phone_range_router.phone_range_router"
@@ -66,7 +66,7 @@ invalid range
 
 === TEST 3: 配置验证 - min 大于 max
 --- http_config
-    lua_package_path "$prefix/../../../../plugins/?.lua;;";
+    lua_package_path "$prefix/../../../../src/lua-plugins/?.lua;;";
 
     init_by_lua_block {
         local router = require "phone_range_router.phone_range_router"
@@ -94,7 +94,7 @@ min > max
 
 === TEST 4: 配置验证 - 空 data 参数
 --- http_config
-    lua_package_path "$prefix/../../../../plugins/?.lua;;";
+    lua_package_path "$prefix/../../../../src/lua-plugins/?.lua;;";
 
     init_by_lua_block {
         local router = require "phone_range_router.phone_range_router"
@@ -117,7 +117,7 @@ data is nil
 
 === TEST 5: 配置验证 - 空 ranges 使用默认路由
 --- http_config
-    lua_package_path "$prefix/../../../../plugins/?.lua;;";
+    lua_package_path "$prefix/../../../../src/lua-plugins/?.lua;;";
 
     init_by_lua_block {
         local router = require "phone_range_router.phone_range_router"
@@ -163,7 +163,7 @@ upstream: default_backend
 
 === TEST 6: 自定义 header_name 配置
 --- http_config
-    lua_package_path "$prefix/../../../../plugins/?.lua;;";
+    lua_package_path "$prefix/../../../../src/lua-plugins/?.lua;;";
 
     init_by_lua_block {
         local router = require "phone_range_router.phone_range_router"
@@ -213,7 +213,7 @@ upstream: backend_a
 
 === TEST 7: 多个手机号请求头 - 使用第一个
 --- http_config
-    lua_package_path "$prefix/../../../../plugins/?.lua;;";
+    lua_package_path "$prefix/../../../../src/lua-plugins/?.lua;;";
 
     init_by_lua_block {
         local router = require "phone_range_router.phone_range_router"

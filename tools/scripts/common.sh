@@ -24,6 +24,7 @@ LOADBALANCE_DIR="$SRC_DIR/loadbalance"
 BUILD_DIR="$PROJECT_ROOT/build"
 OPENRESTY_PREFIX="$BUILD_DIR/openresty"
 NGINX_BIN="$OPENRESTY_PREFIX/nginx/sbin/nginx"
+LUAJIT_BIN="$OPENRESTY_PREFIX/luajit/bin/luajit"
 
 # 数据目录
 DATA_DIR="$WEB_ADMIN_DIR/data"
@@ -259,7 +260,7 @@ start_nginx_loadbalance() {
     local ret=$?
 
     if [[ $ret -eq 0 ]]; then
-        log_success "负载均衡已启动 (端口: 80/443)"
+        log_success "负载均衡已启动 (端口: 9000)"
     fi
     return $ret
 }
@@ -308,7 +309,6 @@ reload_nginx_loadbalance() {
 # ============================================================
 
 FRONTEND_DIR="$WEB_ADMIN_DIR/frontend"
-FRONTEND_PORT=5173
 
 # 检查前端依赖
 check_frontend_deps() {
@@ -338,61 +338,34 @@ install_frontend_deps() {
     fi
 }
 
-# 启动前端开发服务器
-start_frontend() {
-    # 检查是否已运行
-    local pid
-    pid=$(get_pid_by_port "$FRONTEND_PORT")
-    if [[ -n "$pid" ]]; then
-        log_warn "前端服务已在运行 (PID: $pid)"
-        return 0
-    fi
+# 构建前端静态文件
+build_frontend() {
+    # 检查是否需要构建
+    local dist_dir="$FRONTEND_DIR/dist"
+    local need_build=false
 
-    # 检查并安装依赖
-    check_frontend_deps || return 1
-    install_frontend_deps
-
-    log_info "启动前端开发服务器..."
-    cd "$FRONTEND_DIR"
-    nohup npm run dev > /tmp/vite.log 2>&1 &
-    cd "$PROJECT_ROOT"
-
-    # 等待启动
-    sleep 2
-    if wait_port "$FRONTEND_PORT" 5; then
-        log_success "前端服务已启动 (端口: $FRONTEND_PORT)"
-        return 0
+    if [[ ! -d "$dist_dir" ]]; then
+        need_build=true
     else
-        log_error "前端服务启动失败"
-        return 1
-    fi
-}
-
-# 停止前端开发服务器
-stop_frontend() {
-    local pids
-    pids=$(pgrep -f "vite.*$FRONTEND_DIR" 2>/dev/null)
-
-    if [[ -n "$pids" ]]; then
-        for pid in $pids; do
-            if kill -0 "$pid" 2>/dev/null; then
-                log_info "停止前端服务 (PID: $pid)..."
-                kill "$pid" 2>/dev/null || true
-            fi
-        done
-        log_success "前端服务已停止"
-        return 0
+        # 检查源码是否比 dist 更新
+        local src_newer
+        src_newer=$(find "$FRONTEND_DIR/src" -newer "$dist_dir" 2>/dev/null | head -1)
+        if [[ -n "$src_newer" ]]; then
+            need_build=true
+        fi
     fi
 
-    # 尝试通过端口查找
-    local pid
-    pid=$(get_pid_by_port "$FRONTEND_PORT")
-    if [[ -n "$pid" ]]; then
-        log_info "停止前端服务 (PID: $pid)..."
-        kill "$pid" 2>/dev/null || true
-        log_success "前端服务已停止"
-        return 0
-    fi
+    if [[ "$need_build" == "true" ]]; then
+        if ! check_frontend_deps; then
+            log_warn "跳过前端构建 (缺少 Node.js)"
+            return 0
+        fi
 
-    return 1
+        install_frontend_deps
+        log_info "构建前端静态文件..."
+        cd "$FRONTEND_DIR"
+        npm run build --silent 2>/dev/null
+        cd "$PROJECT_ROOT"
+        log_success "前端构建完成"
+    fi
 }
