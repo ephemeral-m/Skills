@@ -1,6 +1,6 @@
 #!/bin/bash
 # PostToolUse Hook - 命令执行后自动处理
-# 当 dev build/test/verify 失败时，智能建议修复 Skill
+# 当 dev build/test/all 失败时，智能建议修复 Skill
 #
 # 环境变量:
 #   CLAUDE_TOOL_NAME - 工具名称
@@ -77,9 +77,9 @@ classify_and_suggest() {
     local output="$1"
     local command="$2"
 
-    # 提取模块名（如果命令是 dev build xxx 或 dev test xxx）
+    # 提取模块名（如果命令是 dev build/test/all）
     local module=""
-    if [[ "$command" =~ dev\ (build|test|verify)\ ([a-zA-Z0-9_-]+) ]]; then
+    if [[ "$command" =~ dev\ (build|test|all)\ ([a-zA-Z0-9_-]+) ]]; then
         module="${BASH_REMATCH[2]}"
     fi
 
@@ -144,7 +144,7 @@ if [[ "$TOOL_NAME" == "Bash" ]]; then
         fi
 
         # 检查 dev 命令
-        if [[ "$command" =~ ^dev\ (build|test|verify|sync) ]]; then
+        if [[ "$command" =~ ^dev\ (all|build|test|sync|start|stop) ]]; then
             classify_and_suggest "$output" "$command"
         # 检查直接编译命令
         elif [[ "$command" =~ (make|cmake|gcc|g\+\+|go\ build|cargo\ build) ]]; then

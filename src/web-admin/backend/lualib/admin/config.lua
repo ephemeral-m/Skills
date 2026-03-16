@@ -4,6 +4,7 @@
 local _M = {}
 local cjson = require "cjson.safe"
 local storage = require "admin.storage"
+local deploy = require "admin.deploy"
 local utils = require "admin.utils"
 
 ------------------------------------------------------------------------------
@@ -52,6 +53,23 @@ local VALIDATORS = {
         return true
     end
 }
+
+------------------------------------------------------------------------------
+-- 自动应用配置到 loadbalance
+------------------------------------------------------------------------------
+
+local AUTO_APPLY = true  -- 可通过环境变量或配置控制
+
+local function auto_apply_config()
+    if not AUTO_APPLY then return end
+
+    local result = deploy.apply()
+    if result and result.success then
+        ngx.log(ngx.INFO, "Config auto-applied to loadbalance")
+    else
+        ngx.log(ngx.WARN, "Auto-apply failed: ", result and result.message or "unknown error")
+    end
+end
 
 ------------------------------------------------------------------------------
 -- 验证配置
@@ -132,6 +150,9 @@ local function handle_post(domain, uri)
         return utils.send_error(item_id or "Failed to save config", utils.HTTP_STATUS.INTERNAL_ERROR)
     end
 
+    -- 自动应用配置
+    auto_apply_config()
+
     return utils.send_created(item_id)
 end
 
@@ -159,6 +180,9 @@ local function handle_put(domain, id)
         return utils.send_error(uerr or "Failed to update config", utils.HTTP_STATUS.INTERNAL_ERROR)
     end
 
+    -- 自动应用配置
+    auto_apply_config()
+
     return utils.send_updated()
 end
 
@@ -175,6 +199,9 @@ local function handle_delete(domain, id)
     if not ok then
         return utils.send_error(err or "Failed to delete config", utils.HTTP_STATUS.INTERNAL_ERROR)
     end
+
+    -- 自动应用配置
+    auto_apply_config()
 
     return utils.send_deleted()
 end

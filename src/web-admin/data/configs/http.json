@@ -1,20 +1,5 @@
 {
   "version": 1,
   "updated_at": "2026-03-15T18:00:00",
-  "items": [
-    {
-      "id": "main_server",
-      "server_name": "example.com",
-      "listen": [
-        {
-          "port": 80,
-          "ssl": false
-        }
-      ],
-      "root": "/var/www/html",
-      "index": "index.html index.htm",
-      "access_log": "/var/log/nginx/example.access.log",
-      "error_log": "/var/log/nginx/example.error.log"
-    }
-  ]
+  "items": []
 }

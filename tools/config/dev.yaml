@@ -32,6 +32,7 @@ sync:
     - "*.o"
     - "*.a"
     - "*.so"
+    - src/web-admin/data/          # 用户配置数据，不覆盖
 
 # Pipeline 配置
 pipeline:

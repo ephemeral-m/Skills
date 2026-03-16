@@ -111,16 +111,16 @@ local function is_nginx_running()
     return cmdline and cmdline:find("nginx") ~= nil, pid
 end
 
--- 重载或启动 nginx
+-- 重载或启动 nginx (不使用 sudo，与 start.sh 保持一致)
 local function reload_nginx()
     local nginx_bin = get_nginx_binary()
     local running, _ = is_nginx_running()
 
     local cmd
     if running then
-        cmd = 'sudo ' .. nginx_bin .. ' -s reload -p "' .. LOADBALANCE_DIR .. '" -c nginx.conf 2>&1'
+        cmd = nginx_bin .. ' -s reload -p "' .. LOADBALANCE_DIR .. '" -c nginx.conf 2>&1'
     else
-        cmd = 'sudo ' .. nginx_bin .. ' -p "' .. LOADBALANCE_DIR .. '" -c nginx.conf 2>&1'
+        cmd = nginx_bin .. ' -p "' .. LOADBALANCE_DIR .. '" -c nginx.conf 2>&1'
     end
 
     return exec_command(cmd)

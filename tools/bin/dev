@@ -199,13 +199,36 @@ class SSHExecutor:
             # 确保远程目录存在
             self.exec("mkdir -p .")
 
+            # 预处理排除模式：标准化路径格式
+            normalized_exclude = []
+            for p in exclude:
+                p = p.rstrip('/').replace('\\', '/')
+                normalized_exclude.append(p)
+
+            def should_exclude(path: str) -> bool:
+                """检查路径是否应该被排除"""
+                for pattern in normalized_exclude:
+                    # 精确匹配或前缀匹配目录
+                    if path == pattern or path.startswith(pattern + '/'):
+                        return True
+                return False
+
             # 打包
             buf = io.BytesIO()
-            import fnmatch
             with tarfile.open(fileobj=buf, mode='w:gz', encoding='utf-8') as tar:
                 for item in PROJECT_ROOT.iterdir():
-                    if not any(fnmatch.fnmatch(item.name, p.rstrip('/')) for p in exclude):
-                        tar.add(item, arcname=item.name)
+                    # 检查根目录是否被排除
+                    if should_exclude(item.name):
+                        continue
+
+                    # 使用 filter 过滤嵌套路径
+                    def tar_filter(tarinfo):
+                        rel_path = tarinfo.name.replace('\\', '/')
+                        if should_exclude(rel_path):
+                            return None
+                        return tarinfo
+
+                    tar.add(item, arcname=item.name, filter=tar_filter)
 
             size = len(buf.getvalue()) / 1024 / 1024
             log_i(f"打包: {size:.2f} MB")
@@ -475,7 +498,8 @@ class DevCLI:
             print(f"\n最近{label}:")
             if RESULTS_DIR.exists():
                 for f in sorted(RESULTS_DIR.glob(pattern), key=lambda x: x.stat().st_mtime, reverse=True)[:5]:
-                    data = json.load(open(f))
+                    with open(f, 'r', encoding='utf-8') as fp:
+                        data = json.load(fp)
                     print(f"  {'✓' if data.get('success') else '✗'} {f.stem}")
         return 0
 
@@ -494,7 +518,8 @@ class DevCLI:
             path = files[0]
 
         log_i(f"分析文件: {path}")
-        data = json.load(open(path))
+        with open(path, 'r', encoding='utf-8') as fp:
+            data = json.load(fp)
 
         # 合并输出
         output = '\n'.join(

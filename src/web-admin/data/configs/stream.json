@@ -1,27 +1,5 @@
 {
   "version": 1,
   "updated_at": "2026-03-15T18:00:00",
-  "items": [
-    {
-      "id": "tcp_proxy",
-      "listen": 3306,
-      "protocol": "tcp",
-      "proxy_pass": "backend_mysql",
-      "timeout": {
-        "connect": "5s",
-        "read": "30s",
-        "send": "30s"
-      }
-    },
-    {
-      "id": "udp_dns",
-      "listen": "53 udp",
-      "protocol": "udp",
-      "proxy_pass": "backend_dns",
-      "timeout": {
-        "read": "5s",
-        "send": "5s"
-      }
-    }
-  ]
+  "items": []
 }
