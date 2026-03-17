@@ -1,0 +1,371 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Debug CLI - 远程调试命令入口
+
+用法:
+  debug log [options]             # 日志调试
+  debug c [options]               # C 模块调试
+  debug lua [options]             # Lua 模块调试
+  debug status                    # 调试状态概览
+"""
+
+import argparse
+import io
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from contextlib import redirect_stdout, redirect_stderr
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Dict, Any, List, Optional, Callable
+
+# 修复 Windows 终端中文编码
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+
+try:
+    import paramiko
+    import yaml
+    HAS_DEPS = True
+except ImportError:
+    HAS_DEPS = False
+
+# ============================================================
+# 常量
+# ============================================================
+
+TOOLS_DIR = Path(__file__).parent.parent.resolve()
+PROJECT_ROOT = TOOLS_DIR.parent.resolve()
+CONFIG_PATH = TOOLS_DIR / "config" / "dev.yaml"
+SCRIPTS_DIR = TOOLS_DIR / "scripts" / "debug"
+
+# 颜色
+C = {'R': '\033[0;31m', 'G': '\033[0;32m', 'Y': '\033[1;33m', 'B': '\033[0;34m', 'C': '\033[0;36m', 'N': '\033[0m'}
+
+# ============================================================
+# 数据类
+# ============================================================
+
+@dataclass
+class RemoteConfig:
+    """远程服务器配置"""
+    host: str
+    port: int = 22
+    user: str = ""
+    password: str = ""
+    workdir: str = ""
+
+@dataclass
+class CommandResult:
+    """命令执行结果"""
+    success: bool
+    returncode: int
+    stdout: str
+    stderr: str
+    duration: float
+    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+
+# ============================================================
+# 工具函数
+# ============================================================
+
+def log_i(msg: str): print(f"{C['B']}[INFO]{C['N']} {msg}")
+def log_s(msg: str): print(f"{C['G']}[SUCCESS]{C['N']} {msg}")
+def log_w(msg: str): print(f"{C['Y']}[WARN]{C['N']} {msg}")
+def log_e(msg: str): print(f"{C['R']}[ERROR]{C['N']} {msg}", file=sys.stderr)
+def log_d(msg: str): print(f"{C['C']}[DEBUG]{C['N']} {msg}")
+
+def clean_ansi(text: str) -> str:
+    """移除 ANSI 颜色码"""
+    return re.sub(r'\033\[[0-9;]*m', '', text)
+
+def format_output(text: str) -> str:
+    """格式化输出：清理颜色码，压缩空行"""
+    text = clean_ansi(text)
+    lines = [line.rstrip() for line in text.split('\n')]
+    result, prev_empty = [], False
+    for line in lines:
+        if not line.strip():
+            if not prev_empty:
+                result.append('')
+            prev_empty = True
+        else:
+            result.append(line)
+            prev_empty = False
+    while result and not result[0].strip():
+        result.pop(0)
+    while result and not result[-1].strip():
+        result.pop()
+    return '\n'.join(result)
+
+def load_yaml(path: Path) -> Dict:
+    """加载 YAML 配置"""
+    if not path.exists():
+        log_e(f"配置文件不存在: {path}")
+        sys.exit(1)
+    with open(path, 'r', encoding='utf-8') as f:
+        return yaml.safe_load(f)
+
+# ============================================================
+# SSH 执行器
+# ============================================================
+
+class SSHExecutor:
+    """SSH 远程执行器"""
+
+    def __init__(self, config: RemoteConfig):
+        self.config = config
+        self._ssh = None
+
+    def connect(self) -> bool:
+        """建立 SSH 连接"""
+        if not HAS_DEPS:
+            log_e("需要依赖: pip install paramiko pyyaml")
+            return False
+        try:
+            self._ssh = paramiko.SSHClient()
+            self._ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+            self._ssh.connect(
+                self.config.host,
+                port=self.config.port,
+                username=self.config.user,
+                password=self.config.password,
+                timeout=30
+            )
+            return True
+        except Exception as e:
+            log_e(f"SSH 连接失败: {e}")
+            return False
+
+    def close(self):
+        """关闭连接"""
+        if self._ssh:
+            self._ssh.close()
+            self._ssh = None
+
+    def exec(self, cmd: str, timeout: int = 300) -> CommandResult:
+        """执行远程命令"""
+        full_cmd = f"cd {self.config.workdir} && {cmd}"
+        start = time.time()
+
+        if self._ssh:
+            try:
+                _, stdout, stderr = self._ssh.exec_command(full_cmd, timeout=timeout)
+                out = stdout.read().decode('utf-8', errors='ignore')
+                err = stderr.read().decode('utf-8', errors='ignore')
+                code = stdout.channel.recv_exit_status()
+                return CommandResult(code == 0, code, out, err, time.time() - start)
+            except Exception as e:
+                return CommandResult(False, 1, "", str(e), 0)
+        else:
+            # 使用本地 ssh 命令
+            ssh_cmd = ["ssh", "-p", str(self.config.port),
+                       f"{self.config.user}@{self.config.host}", full_cmd]
+            result = subprocess.run(ssh_cmd, capture_output=True, text=True)
+            return CommandResult(result.returncode == 0, result.returncode,
+                               result.stdout, result.stderr, 0)
+
+    def exec_interactive(self, cmd: str):
+        """执行交互式命令（如 GDB 附加）"""
+        full_cmd = f"cd {self.config.workdir} && {cmd}"
+        ssh_cmd = ["ssh", "-t", "-p", str(self.config.port),
+                   f"{self.config.user}@{self.config.host}", full_cmd]
+        subprocess.run(ssh_cmd)
+
+# ============================================================
+# Debug CLI 主类
+# ============================================================
+
+class DebugCLI:
+    """调试命令入口"""
+
+    def __init__(self):
+        self.config = load_yaml(CONFIG_PATH)
+        self.remote = RemoteConfig(
+            host=self.config['remote'].get('host', ''),
+            port=self.config['remote'].get('port', 22),
+            user=self.config['remote'].get('user', ''),
+            password=str(self.config['remote'].get('password', '')),
+            workdir=self.config['remote'].get('workdir', '')
+        )
+        self.ssh = SSHExecutor(self.remote)
+
+    def _exec(self, cmd: str, timeout: int = 300) -> CommandResult:
+        """执行远程命令"""
+        if not self.ssh._ssh:
+            self.ssh.connect()
+        return self.ssh.exec(cmd, timeout)
+
+    def _exec_and_print(self, cmd: str, success_msg: str = "", fail_msg: str = "") -> int:
+        """执行命令并打印结果"""
+        result = self._exec(cmd)
+        output = format_output(result.stdout)
+        if output:
+            print(output)
+        if result.stderr and result.returncode != 0:
+            err = format_output(result.stderr)
+            if err:
+                print(err, file=sys.stderr)
+        if success_msg and result.success:
+            log_s(success_msg)
+        if fail_msg and not result.success:
+            log_e(fail_msg)
+        return result.returncode
+
+    # ==================== 日志调试 ====================
+
+    def cmd_log(self, log_type: str = 'error', level: str = None,
+                follow: bool = False, grep: str = None, lines: int = 50) -> int:
+        """日志调试命令"""
+        args = [log_type, str(lines)]
+        if grep:
+            args.append(grep)
+        else:
+            args.append("")
+        args.append("true" if follow else "false")
+
+        cmd = f"bash tools/scripts/debug/log.sh {' '.join(args)}"
+        return self._exec_and_print(cmd)
+
+    # ==================== C 模块调试 ====================
+
+    def cmd_c(self, attach: bool = False, bt: bool = False,
+              info: bool = False, core_dir: str = None) -> int:
+        """C 模块调试命令"""
+
+        if attach:
+            # 交互式附加
+            print(f"{C['Y']}警告: GDB 附加会暂停进程执行，影响生产流量{C['N']}")
+            print(f"{C['Y']}建议: 使用 --bt 快速查看调用栈{C['N']}")
+            self.ssh.exec_interactive("bash tools/scripts/debug/gdb.sh attach")
+            return 0
+
+        if bt:
+            cmd = "bash tools/scripts/debug/gdb.sh bt"
+            return self._exec_and_print(cmd, "调用栈获取成功", "获取调用栈失败")
+
+        if info:
+            cmd = "bash tools/scripts/debug/gdb.sh info"
+            return self._exec_and_print(cmd)
+
+        if core_dir:
+            cmd = f"bash tools/scripts/debug/gdb.sh core {core_dir}"
+        else:
+            cmd = "bash tools/scripts/debug/gdb.sh core"
+        return self._exec_and_print(cmd)
+
+    # ==================== Lua 模块调试 ====================
+
+    def cmd_lua(self, errors: bool = False, modules: bool = False,
+                eval_code: str = None, dict_name: str = None) -> int:
+        """Lua 模块调试命令"""
+
+        if errors:
+            cmd = "bash tools/scripts/debug/lua.sh errors"
+            return self._exec_and_print(cmd)
+
+        if modules:
+            cmd = "bash tools/scripts/debug/lua.sh modules"
+            return self._exec_and_print(cmd)
+
+        if eval_code:
+            # 转义特殊字符
+            escaped = eval_code.replace('"', '\\"')
+            cmd = f'bash tools/scripts/debug/lua.sh eval "{escaped}"'
+            return self._exec_and_print(cmd)
+
+        if dict_name:
+            cmd = f"bash tools/scripts/debug/lua.sh dict {dict_name}"
+            return self._exec_and_print(cmd)
+
+        # 默认显示帮助
+        print("用法: debug lua --errors|--modules|--eval <code>|--dict <name>")
+        return 0
+
+    # ==================== 状态概览 ====================
+
+    def cmd_status(self) -> int:
+        """调试状态概览"""
+        cmd = "bash tools/scripts/debug/gdb.sh status"
+        return self._exec_and_print(cmd)
+
+# ============================================================
+# 主函数
+# ============================================================
+
+def main():
+    parser = argparse.ArgumentParser(description='Debug CLI - 远程调试命令入口')
+    sub = parser.add_subparsers(dest='command', help='可用命令')
+
+    # log 子命令
+    log_p = sub.add_parser('log', help='日志调试')
+    log_p.add_argument('--type', '-t', default='error',
+                       choices=['error', 'access', 'stream'], help='日志类型 (默认 error)')
+    log_p.add_argument('--level', '-l', choices=['debug', 'info', 'warn', 'error'],
+                       help='日志级别过滤')
+    log_p.add_argument('--follow', '-f', action='store_true',
+                       help='实时跟踪 (tail -f)')
+    log_p.add_argument('--grep', '-g', help='关键词过滤')
+    log_p.add_argument('--lines', '-n', type=int, default=50,
+                       help='显示行数 (默认 50)')
+
+    # c 子命令
+    c_p = sub.add_parser('c', help='C 模块调试')
+    c_group = c_p.add_mutually_exclusive_group()
+    c_group.add_argument('--attach', '-a', action='store_true',
+                         help='附加到运行进程（交互模式）')
+    c_group.add_argument('--bt', '-b', action='store_true',
+                         help='显示所有线程调用栈')
+    c_group.add_argument('--info', '-i', action='store_true',
+                         help='查看进程信息')
+    c_group.add_argument('--core', '-c', nargs='?', const='', default=None,
+                         help='分析 core dump（可指定目录）')
+
+    # lua 子命令
+    lua_p = sub.add_parser('lua', help='Lua 模块调试')
+    lua_group = lua_p.add_mutually_exclusive_group()
+    lua_group.add_argument('--errors', '-e', action='store_true',
+                           help='查看最近 Lua 错误')
+    lua_group.add_argument('--modules', '-m', action='store_true',
+                           help='查看已加载模块')
+    lua_group.add_argument('--eval', dest='eval_code',
+                           help='执行 Lua 代码片段')
+    lua_group.add_argument('--dict', '-d', dest='dict_name',
+                           help='查看共享字典内容')
+
+    # status 子命令
+    sub.add_parser('status', help='调试状态概览')
+
+    args = parser.parse_args()
+    if not args.command:
+        parser.print_help()
+        sys.exit(0)
+
+    cli = DebugCLI()
+
+    cmd_map = {
+        'log': lambda: cli.cmd_log(
+            log_type=args.type, level=args.level,
+            follow=args.follow, grep=args.grep, lines=args.lines
+        ),
+        'c': lambda: cli.cmd_c(
+            attach=args.attach, bt=args.bt,
+            info=args.info, core_dir=args.core
+        ),
+        'lua': lambda: cli.cmd_lua(
+            errors=args.errors, modules=args.modules,
+            eval_code=args.eval_code, dict_name=args.dict_name
+        ),
+        'status': cli.cmd_status
+    }
+
+    sys.exit(cmd_map[args.command]())
+
+if __name__ == '__main__':
+    main()
