@@ -18,6 +18,91 @@
           {
             "type": "command",
             "command": ".claude/hooks/PostToolUse.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/AuditLog.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/AuditLog.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/AuditLog.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/AuditLog.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/AuditLog.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/AuditLog.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/AuditLog.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "WebSearch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/AuditLog.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/AuditLog.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/AuditLog.sh"
           }
         ]
       }
@@ -145,6 +230,16 @@
         "create skill",
         "new skill",
         "skill optimization"
+      ]
+    },
+    "remote-debug": {
+      "path": ".claude/skills/remote-debug",
+      "description": "远程调试 Skill，支持 C 模块和 Lua 模块的远程调试。当用户需要调试远程 Linux 服务器上的 OpenResty/Nginx 进程、查看日志、分析 Core Dump、检查 Lua 模块状态时使用此 skill。",
+      "triggers": [
+        "debug",
+        "gdb",
+        "core dump",
+        "remote debug"
       ]
     }
   },
