@@ -338,3 +338,92 @@ return _M
 
 - HTTP 插件: `references/http.md`
 - Stream 插件: `references/stream.md`
+
+## 常见陷阱与解决方案
+
+### 1. Lua 模式匹配特殊字符
+
+**问题描述：** Lua 的 `string.find`、`string.match` 等函数使用模式匹配而非正则表达式，某些字符有特殊含义。
+
+**特殊字符列表：** `^$()%.[]*+-?`
+
+**典型案例：** 匹配 Content-Type 失败
+
+```lua
+-- ❌ 错误：- 是非贪婪修饰符，不是字面字符
+local found = string.find("application/x-www-form-urlencoded", "application/x-www-form-urlencoded")
+-- 返回 nil！
+
+-- ✅ 正确：使用 plain 模式（第4个参数为 true）
+local found = string.find("application/x-www-form-urlencoded", "application/x-www-form-urlencoded", 1, true)
+-- 返回 1
+```
+
+**最佳实践：**
+
+| 场景 | 推荐方案 | 示例 |
+|------|----------|------|
+| 纯字符串匹配 | `string.find(s, pattern, 1, true)` | 检查 Content-Type |
+| 需要模式匹配 | 转义特殊字符或使用 `ngx.re.match` | 提取字段值 |
+| 复杂正则需求 | `ngx.re.match` (PCRE 语法) | JSON/表单解析 |
+
+### 2. ngx.re.match 使用 PCRE 语法
+
+**重要区别：** `ngx.re.match` 使用 PCRE 正则语法，与 Lua 模式语法不同。
+
+```lua
+-- ❌ 错误：使用 Lua 模式语法
+ngx.re.match(body, '"field"%s*:%s*"([^"]*)"')  -- %s 是 Lua 语法
+
+-- ✅ 正确：使用 PCRE 语法
+ngx.re.match(body, '"field"\\s*:\\s*"([^"]*)"', "jo")  -- \\s 是 PCRE 语法
+```
+
+**常用 PCRE 语法对照：**
+
+| Lua 模式 | PCRE 正则 | 说明 |
+|----------|-----------|------|
+| `%s` | `\\s` | 空白字符 |
+| `%d` | `\\d` | 数字 |
+| `%w` | `\\w` | 单词字符 |
+| `.` | `.` | 任意字符 |
+| `+` | `+` | 一个或多个 |
+| `*` | `*` | 零个或多个 |
+| `-` | `*?` | 非贪婪（含义不同！） |
+
+**推荐选项：**
+- `"jo"` - 编译缓存 + 大小写不敏感
+
+### 3. Test::Nginx 测试用例计划数量
+
+**问题描述：** Test2::API 版本不匹配可能导致测试计数异常。
+
+**解决方案：**
+
+```perl
+# 方法1：动态计算测试数量
+plan tests => repeat_each() * blocks() * 2;
+
+# 方法2：固定数量（确保准确）
+plan tests => repeat_each() * 9 * 2 + 1;
+
+# 避免使用 no_plan 或缺少 plan
+```
+
+### 4. 请求体读取注意事项
+
+**关键点：** 在 Test::Nginx 中需要正确配置请求体处理。
+
+```nginx
+# nginx 配置中需要
+lua_need_request_body on;
+client_body_buffer_size 1m;
+```
+
+```lua
+-- Lua 代码中需要显式读取
+ngx.req.read_body()
+local body = ngx.req.get_body_data()
+```
+
+**注意：** `lua_need_request_body on` 与 `ngx.req.read_body()` 配合使用，确保请求体可用。

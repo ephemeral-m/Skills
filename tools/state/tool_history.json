@@ -1,7 +1,0 @@
-[{
-  "timestamp": "2026-03-16T20:12:58+08:00",
-  "tool": "Bash",
-  "command": "echo test",
-  "success": true,
-  "needs_fix": false
-}]

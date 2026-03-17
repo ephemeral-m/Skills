@@ -1,0 +1,128 @@
+# body_tag_filter 示例配置
+# 放置于 http 块内
+
+lua_package_path "/path/to/plugins/?.lua;;";
+
+# 定义后端服务器
+upstream backend {
+    server 127.0.0.1:8080;
+    keepalive 32;
+}
+
+# 初始化插件
+init_worker_by_lua_block {
+    local filter = require "body_tag_filter.body_tag_filter"
+    local ok, err = filter.init_worker({
+        -- 要检查的字段名
+        tag_field = "gray",
+
+        -- 需要拦截的标签值列表
+        block_values = {"true", "1", "yes", "on"},
+
+        -- 允许通过的标签值列表（优先级更高）
+        -- allow_values = {"production", "prod"},
+
+        -- 拦截时的 HTTP 状态码
+        reject_code = 403,
+
+        -- 拦截时的响应消息
+        reject_message = "Gray traffic blocked",
+
+        -- 拦截时的额外响应头
+        reject_headers = {
+            ["X-Block-Source"] = "body_tag_filter",
+            ["X-Block-Time"] = ngx.now()
+        },
+
+        -- 最大请求体大小（字节）
+        max_body_size = 1024 * 1024,  -- 1MB
+
+        -- 支持的内容类型
+        content_types = {
+            "application/json",
+            "application/x-www-form-urlencoded",
+            "text/plain"
+        }
+    })
+    if not ok then
+        ngx.log(ngx.ERR, "[body_tag_filter] init failed: ", err)
+    else
+        ngx.log(ngx.INFO, "[body_tag_filter] initialized successfully")
+    end
+}
+
+# 服务器配置
+server {
+    listen 80;
+    server_name localhost;
+
+    # API 路径配置
+    location /api/ {
+        # 阶段 1: 请求预处理（读取请求体，提取标签，判断是否拦截）
+        rewrite_by_lua_block {
+            require("body_tag_filter.body_tag_filter").prerouting()
+        }
+
+        # 阶段 2: 路由决策（执行拦截）
+        access_by_lua_block {
+            require("body_tag_filter.body_tag_filter").postrouting()
+        }
+
+        # 阶段 3: 响应头处理（添加调试信息）
+        header_filter_by_lua_block {
+            require("body_tag_filter.body_tag_filter").header_filter()
+        }
+
+        # 代理到后端服务器
+        proxy_pass http://backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    }
+
+    # 健康检查端点（跳过过滤器）
+    location /health {
+        echo "OK";
+    }
+}
+
+# ============================================================
+# 使用场景示例
+# ============================================================
+
+# 场景 1: 灰度流量拦截
+# 配置:
+#   tag_field = "gray"
+#   block_values = {"true"}
+#   reject_code = 503
+#   reject_message = "Service temporarily unavailable"
+#
+# 测试:
+#   curl -X POST http://localhost/api/test \
+#       -H "Content-Type: application/json" \
+#       -d '{"gray": "true"}'
+#   # 返回 503
+
+# 场景 2: 环境白名单
+# 配置:
+#   tag_field = "env"
+#   allow_values = {"production", "prod"}
+#   reject_code = 403
+#   reject_message = "Access denied"
+#
+# 测试:
+#   curl -X POST http://localhost/api/test \
+#       -H "Content-Type: application/json" \
+#       -d '{"env": "staging"}'
+#   # 返回 403
+
+# 场景 3: 版本控制
+# 配置:
+#   tag_field = "version"
+#   block_values = {"v1", "deprecated"}
+#
+# 测试:
+#   curl -X POST http://localhost/api/test \
+#       -H "Content-Type: application/x-www-form-urlencoded" \
+#       -d "version=v1&data=test"
+#   # 返回 403

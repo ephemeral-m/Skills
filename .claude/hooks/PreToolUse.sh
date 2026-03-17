@@ -2,80 +2,96 @@
 # PreToolUse Hook - 工具执行前检查
 # 用于命令验证、参数预处理、安全检查等
 #
-# 环境变量:
-#   CLAUDE_TOOL_NAME - 工具名称
-#   CLAUDE_TOOL_INPUT - 工具输入 (JSON)
+# 数据通过 stdin 以 JSON 格式传入
 
 set -e
 
-TOOL_NAME="${CLAUDE_TOOL_NAME:-}"
-TOOL_INPUT="${CLAUDE_TOOL_INPUT:-}"
+# 获取脚本目录
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# 颜色定义
-RED='\033[0;31m'
-YELLOW='\033[1;33m'
-NC='\033[0m'
+# 从 stdin 读取 JSON 数据
+INPUT_JSON=$(cat 2>/dev/null || echo "{}")
 
-# 解析 JSON 辅助函数
-json_get() {
-    echo "$1" | python3 -c "import sys,json; print(json.load(sys.stdin).get('$2',''))" 2>/dev/null || echo ""
-}
+# 使用 Python 处理，通过环境变量传递数据
+INPUT_JSON="$INPUT_JSON" python3 -c '
+import sys
+import os
+import re
 
-# 危险命令检查
-check_dangerous_commands() {
-    local command="$1"
+# 添加脚本目录到 Python 路径
+script_dir = os.environ.get("SCRIPT_DIR", ".")
+sys.path.insert(0, script_dir)
 
-    # 定义危险模式
-    local dangerous_patterns=(
-        "rm -rf /"
-        "rm -rf /*"
-        "dd if=/dev/zero"
-        "mkfs"
-        "> /dev/sda"
-        "chmod -R 777 /"
-        "curl.*|.*bash"
-        "wget.*|.*bash"
-    )
+from hooks_lib import read_stdin_json, Colors
 
-    for pattern in "${dangerous_patterns[@]}"; do
-        if [[ "$command" =~ $pattern ]]; then
-            echo -e "${RED}[HOOK] 检测到危险操作: $command${NC}"
-            echo -e "${RED}[HOOK] 已阻止执行，请确认操作是否正确${NC}"
-            return 1
-        fi
-    done
+def check_dangerous_commands(command):
+    """检查危险命令"""
+    dangerous_patterns = [
+        (r"rm\s+-rf\s+/", "rm -rf / - 删除根目录"),
+        (r"rm\s+-rf\s+/\*", "rm -rf /* - 删除根目录所有文件"),
+        (r"dd\s+if=/dev/zero", "dd 覆盖磁盘"),
+        (r"mkfs", "格式化磁盘"),
+        (r">\s*/dev/sda", "直接写入磁盘设备"),
+        (r"chmod\s+-R\s+777\s+/", "递归修改根目录权限"),
+        (r"curl.*\|\s*bash", "curl 管道执行脚本"),
+        (r"wget.*\|\s*bash", "wget 管道执行脚本"),
+    ]
 
-    # Git 危险操作警告
-    if [[ "$command" =~ "git push --force" ]] || [[ "$command" =~ "git push -f" ]]; then
-        echo -e "${YELLOW}[HOOK] 警告: force push 可能会覆盖远程提交${NC}"
-        # 不阻止，只是警告
-    fi
+    for pattern, desc in dangerous_patterns:
+        if re.search(pattern, command):
+            print(Colors.red(f"[Hook] 检测到危险操作: {desc}"))
+            print(Colors.red(f"[Hook] 已阻止执行: {command[:80]}..."))
+            return False
+    return True
 
-    if [[ "$command" =~ "git reset --hard" ]]; then
-        echo -e "${YELLOW}[HOOK] 警告: reset --hard 会丢失未提交的更改${NC}"
-    fi
+def check_git_operations(command):
+    """检查 Git 危险操作"""
+    warnings = []
 
-    return 0
-}
+    if re.search(r"git\s+push\s+(-f|--force)", command):
+        warnings.append("force push 可能会覆盖远程提交")
 
-# 文件操作检查
-check_file_operations() {
-    local command="$1"
+    if re.search(r"git\s+reset\s+--hard", command):
+        warnings.append("reset --hard 会丢失未提交的更改")
 
-    # 检查删除重要文件
-    if [[ "$command" =~ "rm.*dev\.yaml" ]] || [[ "$command" =~ "rm.*CLAUDE\.md" ]]; then
-        echo -e "${YELLOW}[HOOK] 警告: 正在删除配置文件${NC}"
-    fi
-}
+    if re.search(r"git\s+clean\s+-fdx?", command):
+        warnings.append("clean 会删除未跟踪的文件")
 
-# 主逻辑
-if [[ "$TOOL_NAME" == "Bash" ]]; then
-    command=$(json_get "$TOOL_INPUT" "command")
+    for warning in warnings:
+        print(Colors.yellow(f"[Hook] 警告: {warning}"))
+
+def check_file_operations(command):
+    """检查文件操作"""
+    # 检查删除重要配置文件
+    if re.search(r"rm.*dev\.yaml|rm.*CLAUDE\.md", command):
+        print(Colors.yellow("[Hook] 警告: 正在删除配置文件"))
+
+def main():
+    data = read_stdin_json()
+
+    tool_name = data.get("tool_name", "")
+    tool_input = data.get("tool_input", {})
+
+    # 只处理 Bash 工具
+    if tool_name != "Bash":
+        sys.exit(0)
+
+    command = tool_input.get("command", "")
+    if not command:
+        sys.exit(0)
 
     # 执行检查
-    check_dangerous_commands "$command" || exit 1
-    check_file_operations "$command"
-fi
+    if not check_dangerous_commands(command):
+        sys.exit(1)  # 阻止执行
 
-# 正常放行
-exit 0
+    check_git_operations(command)
+    check_file_operations(command)
+
+    # 正常放行
+    sys.exit(0)
+
+if __name__ == "__main__":
+    main()
+' 2>/dev/null
+
+exit $?
