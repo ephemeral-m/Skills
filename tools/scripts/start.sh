@@ -42,11 +42,12 @@ started=0
 # ============================================================
 if [[ "$WEBADMIN_ONLY" != "true" ]]; then
     if is_loadbalance_running; then
-        log_info "负载均衡已在运行"
-    else
-        if start_nginx_loadbalance; then
-            started=$((started + 1))
-        fi
+        log_warn "负载均衡已在运行，正在停止..."
+        stop_nginx_loadbalance || true
+        sleep 1
+    fi
+    if start_nginx_loadbalance; then
+        started=$((started + 1))
     fi
 fi
 
@@ -58,15 +59,17 @@ if [[ "$LOADBALANCE_ONLY" != "true" ]]; then
     build_frontend
 
     if is_running "$BACKEND_LOGS_DIR/nginx.pid"; then
-        log_info "web-admin 已在运行"
+        log_warn "web-admin 已在运行，正在停止..."
+        stop_nginx || true
+        sleep 1
+    fi
+
+    log_info "启动 web-admin..."
+    if start_nginx_webadmin; then
+        started=$((started + 1))
     else
-        log_info "启动 web-admin..."
-        if start_nginx_webadmin; then
-            started=$((started + 1))
-        else
-            log_error "web-admin 启动失败"
-            exit 1
-        fi
+        log_error "web-admin 启动失败"
+        exit 1
     fi
 fi
 

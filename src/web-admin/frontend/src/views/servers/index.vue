@@ -5,15 +5,10 @@
       <div class="toolbar">
         <div class="toolbar-left">
           <el-button type="primary" @click="showCreateDialog">
-            <el-icon><Plus /></el-icon> 新建配置
+            <el-icon><Plus /></el-icon> 新建服务器
           </el-button>
           <el-button @click="loadData">
             <el-icon><Refresh /></el-icon> 刷新
-          </el-button>
-        </div>
-        <div class="toolbar-right">
-          <el-button @click="showHistoryDialog">
-            <el-icon><Clock /></el-icon> 历史版本
           </el-button>
         </div>
       </div>
@@ -23,27 +18,23 @@
     <el-card>
       <el-table :data="configItems" v-loading="loading" style="width: 100%">
         <el-table-column prop="id" label="ID" width="150" />
-        <el-table-column label="监听" width="150">
+        <el-table-column prop="host" label="主机地址" min-width="150" />
+        <el-table-column prop="port" label="端口" width="100">
           <template #default="{ row }">
-            <el-tag>{{ row.listen }}</el-tag>
+            <el-tag>{{ row.port }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="protocol" label="协议" width="80">
+        <el-table-column prop="weight" label="权重" width="80">
           <template #default="{ row }">
-            <el-tag :type="row.protocol === 'tcp' ? 'primary' : 'warning'" size="small">
-              {{ row.protocol?.toUpperCase() }}
+            {{ row.weight || 1 }}
+          </template>
+        </el-table-column>
+        <el-table-column label="引用状态" min-width="120">
+          <template #default="{ row }">
+            <el-tag v-if="row.referenced_by && row.referenced_by.length > 0" type="success">
+              已被 {{ row.referenced_by.length }} 个组引用
             </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column prop="proxy_pass" label="代理目标" min-width="150" />
-        <el-table-column label="超时配置" min-width="200">
-          <template #default="{ row }">
-            <span v-if="row.timeout">
-              连接: {{ row.timeout.connect || '-' }} |
-              读: {{ row.timeout.read || '-' }} |
-              写: {{ row.timeout.send || '-' }}
-            </span>
-            <span v-else>-</span>
+            <el-tag v-else type="info">未被引用</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="200" fixed="right">
@@ -52,7 +43,7 @@
               <el-icon><Edit /></el-icon> 编辑
             </el-button>
             <el-popconfirm
-              title="确定要删除此配置吗？"
+              title="确定要删除此服务器吗？"
               @confirm="deleteItem(row.id)"
             >
               <template #reference>
@@ -69,34 +60,30 @@
     <!-- 编辑对话框 -->
     <el-dialog
       v-model="editDialogVisible"
-      :title="isEdit ? '编辑配置' : '新建配置'"
+      :title="isEdit ? '编辑服务器' : '新建服务器'"
       width="600px"
     >
       <el-form :model="editForm" label-width="120px" ref="formRef">
         <el-form-item label="ID" prop="id" :rules="[{ required: true, message: '请输入 ID' }]">
-          <el-input v-model="editForm.id" :disabled="isEdit" />
+          <el-input v-model="editForm.id" :disabled="isEdit" placeholder="backend_server_1" />
         </el-form-item>
-        <el-form-item label="监听端口" prop="listen" :rules="[{ required: true, message: '请输入监听端口' }]">
-          <el-input v-model="editForm.listen" placeholder="3306 或 53 udp" />
+        <el-form-item label="主机地址" prop="host" :rules="[{ required: true, message: '请输入主机地址' }]">
+          <el-input v-model="editForm.host" placeholder="192.168.1.100 或 backend.example.com" />
         </el-form-item>
-        <el-form-item label="协议">
-          <el-radio-group v-model="editForm.protocol">
-            <el-radio label="tcp">TCP</el-radio>
-            <el-radio label="udp">UDP</el-radio>
-          </el-radio-group>
+        <el-form-item label="端口" prop="port" :rules="[{ required: true, message: '请输入端口' }]">
+          <el-input-number v-model="editForm.port" :min="1" :max="65535" style="width: 100%" />
         </el-form-item>
-        <el-form-item label="代理目标" prop="proxy_pass">
-          <el-input v-model="editForm.proxy_pass" placeholder="upstream_name 或 host:port" />
+        <el-form-item label="权重">
+          <el-input-number v-model="editForm.weight" :min="1" :max="100" style="width: 100%" />
         </el-form-item>
-        <el-divider content-position="left">超时配置</el-divider>
-        <el-form-item label="连接超时">
-          <el-input v-model="editForm.timeout.connect" placeholder="5s" />
-        </el-form-item>
-        <el-form-item label="读取超时">
-          <el-input v-model="editForm.timeout.read" placeholder="30s" />
-        </el-form-item>
-        <el-form-item label="发送超时">
-          <el-input v-model="editForm.timeout.send" placeholder="30s" />
+        <el-divider content-position="left">Nginx 自定义配置</el-divider>
+        <el-form-item label="自定义指令">
+          <el-input
+            v-model="editForm.custom_directives"
+            type="textarea"
+            :rows="4"
+            placeholder="每行一条 nginx 指令，例如:&#10;max_fails=3&#10;fail_timeout=30s"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -112,7 +99,7 @@ import { ref, reactive, onMounted } from 'vue'
 import { configApi } from '@/api/config'
 import { ElMessage } from 'element-plus'
 
-const DOMAIN = 'stream'
+const DOMAIN = 'servers'
 
 const loading = ref(false)
 const configItems = ref([])
@@ -122,14 +109,10 @@ const formRef = ref(null)
 
 const editForm = reactive({
   id: '',
-  listen: '',
-  protocol: 'tcp',
-  proxy_pass: '',
-  timeout: {
-    connect: '5s',
-    read: '30s',
-    send: '30s'
-  }
+  host: '',
+  port: 8080,
+  weight: 1,
+  custom_directives: ''
 })
 
 const loadData = async () => {
@@ -148,31 +131,34 @@ const showCreateDialog = () => {
   isEdit.value = false
   Object.assign(editForm, {
     id: '',
-    listen: '',
-    protocol: 'tcp',
-    proxy_pass: '',
-    timeout: { connect: '5s', read: '30s', send: '30s' }
+    host: '',
+    port: 8080,
+    weight: 1,
+    custom_directives: ''
   })
   editDialogVisible.value = true
 }
 
 const editItem = (item) => {
   isEdit.value = true
-  Object.assign(editForm, item)
-  if (!editForm.timeout) {
-    editForm.timeout = { connect: '5s', read: '30s', send: '30s' }
-  }
+  Object.assign(editForm, {
+    ...item,
+    custom_directives: item.custom_directives || ''
+  })
   editDialogVisible.value = true
 }
 
 const saveItem = async () => {
   try {
     await formRef.value?.validate()
+    const payload = { ...editForm }
+    if (!payload.custom_directives) delete payload.custom_directives
+
     if (isEdit.value) {
-      await configApi.update(DOMAIN, editForm.id, editForm)
+      await configApi.update(DOMAIN, editForm.id, payload)
       ElMessage.success('更新成功')
     } else {
-      await configApi.create(DOMAIN, editForm)
+      await configApi.create(DOMAIN, payload)
       ElMessage.success('创建成功')
     }
     editDialogVisible.value = false

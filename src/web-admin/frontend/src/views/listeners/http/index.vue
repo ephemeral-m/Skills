@@ -5,15 +5,10 @@
       <div class="toolbar">
         <div class="toolbar-left">
           <el-button type="primary" @click="showCreateDialog">
-            <el-icon><Plus /></el-icon> 新建配置
+            <el-icon><Plus /></el-icon> 新建 HTTP 监听器
           </el-button>
           <el-button @click="loadData">
             <el-icon><Refresh /></el-icon> 刷新
-          </el-button>
-        </div>
-        <div class="toolbar-right">
-          <el-button @click="showHistoryDialog">
-            <el-icon><Clock /></el-icon> 历史版本
           </el-button>
         </div>
       </div>
@@ -22,7 +17,7 @@
     <!-- 数据表格 -->
     <el-card>
       <el-table :data="configItems" v-loading="loading" style="width: 100%">
-        <el-table-column prop="id" label="ID" width="180" />
+        <el-table-column prop="id" label="监听器 ID" width="150" />
         <el-table-column prop="server_name" label="服务器名称" min-width="150">
           <template #default="{ row }">
             {{ row.server_name || '-' }}
@@ -38,9 +33,20 @@
             <span v-else>-</span>
           </template>
         </el-table-column>
-        <el-table-column prop="root" label="根目录" min-width="180">
+        <el-table-column label="路由规则" min-width="200">
           <template #default="{ row }">
-            {{ row.root || '-' }}
+            <div v-if="row.route_refs && row.route_refs.length > 0" class="route-list">
+              <el-tag
+                v-for="routeId in row.route_refs"
+                :key="routeId"
+                type="success"
+                size="small"
+                class="route-tag"
+              >
+                {{ routeId }}
+              </el-tag>
+            </div>
+            <span v-else class="text-muted">未配置路由</span>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="200" fixed="right">
@@ -49,7 +55,7 @@
               <el-icon><Edit /></el-icon> 编辑
             </el-button>
             <el-popconfirm
-              title="确定要删除此配置吗？"
+              title="确定要删除此监听器吗？"
               @confirm="deleteItem(row.id)"
             >
               <template #reference>
@@ -66,15 +72,15 @@
     <!-- 编辑对话框 -->
     <el-dialog
       v-model="editDialogVisible"
-      :title="isEdit ? '编辑配置' : '新建配置'"
-      width="600px"
+      :title="isEdit ? '编辑 HTTP 监听器' : '新建 HTTP 监听器'"
+      width="750px"
     >
       <el-form :model="editForm" label-width="120px" ref="formRef">
-        <el-form-item label="ID" prop="id" :rules="[{ required: true, message: '请输入 ID' }]">
-          <el-input v-model="editForm.id" :disabled="isEdit" />
+        <el-form-item label="监听器 ID" prop="id" :rules="[{ required: true, message: '请输入 ID' }]">
+          <el-input v-model="editForm.id" :disabled="isEdit" placeholder="http_server_1" />
         </el-form-item>
         <el-form-item label="服务器名称" prop="server_name">
-          <el-input v-model="editForm.server_name" />
+          <el-input v-model="editForm.server_name" placeholder="example.com" />
         </el-form-item>
         <el-form-item label="监听配置">
           <div v-for="(listen, index) in editForm.listen" :key="index" class="listen-item">
@@ -86,11 +92,28 @@
             添加监听端口
           </el-button>
         </el-form-item>
-        <el-form-item label="根目录">
-          <el-input v-model="editForm.root" />
+        <el-form-item label="路由规则">
+          <el-transfer
+            v-model="editForm.route_refs"
+            :data="availableRoutes"
+            :titles="['可选路由', '已选路由']"
+            :props="{
+              key: 'id',
+              label: 'display'
+            }"
+            filterable
+            filter-placeholder="搜索路由规则"
+          />
         </el-form-item>
-        <el-form-item label="索引文件">
-          <el-input v-model="editForm.index" />
+
+        <el-divider content-position="left">Nginx 自定义配置</el-divider>
+        <el-form-item label="自定义指令">
+          <el-input
+            v-model="editForm.custom_directives"
+            type="textarea"
+            :rows="6"
+            placeholder="每行一条 nginx 指令，例如:&#10;client_max_body_size 50m&#10;gzip on&#10;gzip_types text/plain application/json"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -98,42 +121,21 @@
         <el-button type="primary" @click="saveItem">保存</el-button>
       </template>
     </el-dialog>
-
-    <!-- 历史版本对话框 -->
-    <el-dialog v-model="historyDialogVisible" title="历史版本" width="500px">
-      <el-table :data="historyVersions" v-loading="historyLoading">
-        <el-table-column prop="version" label="版本号" width="100" />
-        <el-table-column label="操作" width="100">
-          <template #default="{ row }">
-            <el-popconfirm
-              title="确定要回滚到此版本吗？"
-              @confirm="rollbackTo(row.version)"
-            >
-              <template #reference>
-                <el-button type="primary" text>回滚</el-button>
-              </template>
-            </el-popconfirm>
-          </template>
-        </el-table-column>
-      </el-table>
-    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { configApi } from '@/api/config'
 import { ElMessage } from 'element-plus'
 import { Delete } from '@element-plus/icons-vue'
 
-const DOMAIN = 'http'
+const DOMAIN = 'listeners-http'
 
 const loading = ref(false)
 const configItems = ref([])
+const allRoutes = ref([])
 const editDialogVisible = ref(false)
-const historyDialogVisible = ref(false)
-const historyLoading = ref(false)
-const historyVersions = ref([])
 const isEdit = ref(false)
 const formRef = ref(null)
 
@@ -141,11 +143,18 @@ const editForm = reactive({
   id: '',
   server_name: '',
   listen: [{ port: 80, ssl: false }],
-  root: '/var/www/html',
-  index: 'index.html index.htm'
+  route_refs: [],
+  custom_directives: ''
 })
 
-// 加载数据
+// 可用路由列表
+const availableRoutes = computed(() => {
+  return allRoutes.value.map(r => ({
+    id: r.id,
+    display: `${r.id} (${r.path})`
+  }))
+})
+
 const loadData = async () => {
   loading.value = true
   try {
@@ -158,35 +167,49 @@ const loadData = async () => {
   }
 }
 
-// 显示创建对话框
+const loadRoutes = async () => {
+  try {
+    const data = await configApi.list('routes')
+    allRoutes.value = data.items || []
+  } catch (e) {
+    console.error('加载路由规则失败:', e)
+  }
+}
+
 const showCreateDialog = () => {
   isEdit.value = false
   Object.assign(editForm, {
     id: '',
     server_name: '',
     listen: [{ port: 80, ssl: false }],
-    root: '/var/www/html',
-    index: 'index.html index.htm'
+    route_refs: [],
+    custom_directives: ''
   })
   editDialogVisible.value = true
 }
 
-// 编辑项目
 const editItem = (item) => {
   isEdit.value = true
-  Object.assign(editForm, item)
+  Object.assign(editForm, {
+    ...item,
+    listen: item.listen || [{ port: 80, ssl: false }],
+    route_refs: item.route_refs || [],
+    custom_directives: item.custom_directives || ''
+  })
   editDialogVisible.value = true
 }
 
-// 保存项目
 const saveItem = async () => {
   try {
     await formRef.value?.validate()
+    const payload = { ...editForm }
+    if (!payload.custom_directives) delete payload.custom_directives
+
     if (isEdit.value) {
-      await configApi.update(DOMAIN, editForm.id, editForm)
+      await configApi.update(DOMAIN, editForm.id, payload)
       ElMessage.success('更新成功')
     } else {
-      await configApi.create(DOMAIN, editForm)
+      await configApi.create(DOMAIN, payload)
       ElMessage.success('创建成功')
     }
     editDialogVisible.value = false
@@ -196,7 +219,6 @@ const saveItem = async () => {
   }
 }
 
-// 删除项目
 const deleteItem = async (id) => {
   try {
     await configApi.delete(DOMAIN, id)
@@ -207,34 +229,9 @@ const deleteItem = async (id) => {
   }
 }
 
-// 显示历史版本
-const showHistoryDialog = async () => {
-  historyDialogVisible.value = true
-  historyLoading.value = true
-  try {
-    const data = await configApi.history(DOMAIN)
-    historyVersions.value = (data.versions || []).map(v => ({ version: v }))
-  } catch (e) {
-    ElMessage.error('加载历史版本失败: ' + e.message)
-  } finally {
-    historyLoading.value = false
-  }
-}
-
-// 回滚
-const rollbackTo = async (version) => {
-  try {
-    await configApi.rollback(DOMAIN, version)
-    ElMessage.success('回滚成功')
-    historyDialogVisible.value = false
-    loadData()
-  } catch (e) {
-    ElMessage.error('回滚失败: ' + e.message)
-  }
-}
-
-onMounted(() => {
-  loadData()
+onMounted(async () => {
+  await loadRoutes()
+  await loadData()
 })
 </script>
 
@@ -259,5 +256,19 @@ onMounted(() => {
   gap: 10px;
   align-items: center;
   margin-bottom: 10px;
+}
+
+.route-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.route-tag {
+  margin: 2px;
+}
+
+.text-muted {
+  color: #909399;
 }
 </style>

@@ -1,10 +1,7 @@
 -- 配置 CRUD 处理模块
--- 处理 HTTP/Stream/Upstream/Location 配置的增删改查
 
 local _M = {}
-local cjson = require "cjson.safe"
 local storage = require "admin.storage"
-local deploy = require "admin.deploy"
 local utils = require "admin.utils"
 
 ------------------------------------------------------------------------------
@@ -13,10 +10,11 @@ local utils = require "admin.utils"
 
 -- 支持的配置域
 local DOMAINS = {
-    http = true,
-    stream = true,
-    upstream = true,
-    location = true
+    servers = true,
+    ["server-groups"] = true,
+    routes = true,
+    ["listeners-http"] = true,
+    ["listeners-tcp"] = true
 }
 
 ------------------------------------------------------------------------------
@@ -24,52 +22,35 @@ local DOMAINS = {
 ------------------------------------------------------------------------------
 
 local VALIDATORS = {
-    http = function(data)
-        if not data.server_name then return false, "server_name is required" end
-        if not data.listen then return false, "listen is required" end
-        return true
-    end,
-
-    stream = function(data)
-        if not data.listen then return false, "listen is required" end
-        return true
-    end,
-
-    upstream = function(data)
+    servers = function(data)
         if not data.id then return false, "id is required" end
-        if not data.servers or #data.servers == 0 then
-            return false, "servers is required and cannot be empty"
-        end
-        for _, server in ipairs(data.servers) do
-            if not server.host or not server.port then
-                return false, "each server must have host and port"
-            end
-        end
+        if not data.host then return false, "host is required" end
+        if not data.port then return false, "port is required" end
         return true
     end,
 
-    location = function(data)
+    ["server-groups"] = function(data)
+        if not data.id then return false, "id is required" end
+        return true
+    end,
+
+    routes = function(data)
+        if not data.id then return false, "id is required" end
         if not data.path then return false, "path is required" end
+        return true
+    end,
+
+    ["listeners-http"] = function(data)
+        if not data.id then return false, "id is required" end
+        return true
+    end,
+
+    ["listeners-tcp"] = function(data)
+        if not data.id then return false, "id is required" end
+        if not data.listen then return false, "listen is required" end
         return true
     end
 }
-
-------------------------------------------------------------------------------
--- 自动应用配置到 loadbalance
-------------------------------------------------------------------------------
-
-local AUTO_APPLY = true  -- 可通过环境变量或配置控制
-
-local function auto_apply_config()
-    if not AUTO_APPLY then return end
-
-    local result = deploy.apply()
-    if result and result.success then
-        ngx.log(ngx.INFO, "Config auto-applied to loadbalance")
-    else
-        ngx.log(ngx.WARN, "Auto-apply failed: ", result and result.message or "unknown error")
-    end
-end
 
 ------------------------------------------------------------------------------
 -- 验证配置
@@ -89,7 +70,6 @@ end
 ------------------------------------------------------------------------------
 
 local function parse_uri(uri)
-    -- /api/config/:domain/:id?
     local domain = uri:match("^/api/config/([^/]+)")
     local id = uri:match("^/api/config/[^/]+/([^/]+)")
 
@@ -150,9 +130,6 @@ local function handle_post(domain, uri)
         return utils.send_error(item_id or "Failed to save config", utils.HTTP_STATUS.INTERNAL_ERROR)
     end
 
-    -- 自动应用配置
-    auto_apply_config()
-
     return utils.send_created(item_id)
 end
 
@@ -180,9 +157,6 @@ local function handle_put(domain, id)
         return utils.send_error(uerr or "Failed to update config", utils.HTTP_STATUS.INTERNAL_ERROR)
     end
 
-    -- 自动应用配置
-    auto_apply_config()
-
     return utils.send_updated()
 end
 
@@ -200,40 +174,7 @@ local function handle_delete(domain, id)
         return utils.send_error(err or "Failed to delete config", utils.HTTP_STATUS.INTERNAL_ERROR)
     end
 
-    -- 自动应用配置
-    auto_apply_config()
-
     return utils.send_deleted()
-end
-
-------------------------------------------------------------------------------
--- 回滚处理
-------------------------------------------------------------------------------
-
-local function handle_rollback(domain)
-    local body, err = utils.parse_json_body()
-    if not body or not body.version then
-        return utils.send_error("version is required for rollback")
-    end
-
-    local ok, rerr = storage.rollback(domain, body.version)
-    if not ok then
-        return utils.send_error(rerr or "Failed to rollback", utils.HTTP_STATUS.INTERNAL_ERROR)
-    end
-
-    return utils.send_response(utils.HTTP_STATUS.OK, {
-        success = true,
-        message = "Rolled back to version " .. body.version
-    })
-end
-
-------------------------------------------------------------------------------
--- 历史处理
-------------------------------------------------------------------------------
-
-local function handle_history(domain)
-    local versions = storage.history(domain)
-    return utils.send_success({ versions = versions })
 end
 
 ------------------------------------------------------------------------------
@@ -252,9 +193,6 @@ function _M.handle(method, uri)
 
     -- 路由请求
     if method == "GET" then
-        if uri:match("/history$") then
-            return handle_history(domain)
-        end
         return handle_get(domain, id)
     elseif method == "POST" then
         return handle_post(domain, uri)

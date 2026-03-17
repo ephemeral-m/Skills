@@ -72,32 +72,9 @@ local function handle_deploy(method, uri)
             or utils.send_response(utils.HTTP_STATUS.INTERNAL_ERROR, result)
     end
 
-    -- POST /api/deploy/rollback
-    if method == "POST" and uri:match("/rollback$") then
-        local data, err = utils.parse_json_body()
-        if not data then
-            return utils.send_error(err or "Invalid request body")
-        end
-
-        local ok, err = utils.check_required(data, {"version"})
-        if not ok then
-            return utils.send_error(err)
-        end
-
-        local result = deploy.rollback(data.version)
-        return result.success
-            and utils.send_success(result)
-            or utils.send_response(utils.HTTP_STATUS.INTERNAL_ERROR, result)
-    end
-
     -- GET /api/deploy/status
     if method == "GET" and uri:match("/status$") then
         return utils.send_success(deploy.status())
-    end
-
-    -- GET /api/deploy/history
-    if method == "GET" and uri:match("/history$") then
-        return utils.send_success({ history = deploy.history() })
     end
 
     -- GET /api/deploy - API 信息
@@ -106,9 +83,7 @@ local function handle_deploy(method, uri)
             endpoints = {
                 preview = "POST /api/deploy/preview",
                 apply = "POST /api/deploy/apply",
-                status = "GET /api/deploy/status",
-                history = "GET /api/deploy/history",
-                rollback = "POST /api/deploy/rollback"
+                status = "GET /api/deploy/status"
             }
         })
     end
@@ -122,17 +97,14 @@ end
 
 local API_INFO = {
     name = "OpenResty Config Admin API",
-    version = "1.0.0",
+    version = "2.0.0",
     endpoints = {
         config = {
             list = "GET /api/config/:domain",
             get = "GET /api/config/:domain/:id",
             create = "POST /api/config/:domain",
             update = "PUT /api/config/:domain/:id",
-            delete = "DELETE /api/config/:domain/:id",
-            validate = "POST /api/config/:domain/validate",
-            history = "GET /api/config/:domain/history",
-            rollback = "POST /api/config/:domain/rollback"
+            delete = "DELETE /api/config/:domain/:id"
         },
         status = {
             nginx = "GET /api/status/nginx",
@@ -145,9 +117,7 @@ local API_INFO = {
         deploy = {
             preview = "POST /api/deploy/preview",
             apply = "POST /api/deploy/apply",
-            status = "GET /api/deploy/status",
-            history = "GET /api/deploy/history",
-            rollback = "POST /api/deploy/rollback"
+            status = "GET /api/deploy/status"
         },
         health = "GET /api/health"
     }
@@ -193,9 +163,9 @@ function _M.dispatch()
             utils.send_success({
                 status = "healthy",
                 timestamp = ngx.localtime(),
-                version = "1.0.0"
+                version = "2.0.0"
             })
-        elseif uri:match("^/api/deploy/") then
+        elseif uri:match("^/api/deploy") then
             handle_deploy(method, uri)
         elseif uri == "/api" or uri == "/api/" then
             utils.send_success(API_INFO)

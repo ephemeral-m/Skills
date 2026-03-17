@@ -11,35 +11,39 @@ const routes = [
     component: () => import('@/views/monitor/index.vue'),
     meta: { title: '监控面板' }
   },
+  // 监听器
   {
-    path: '/wizard',
-    name: 'Wizard',
-    component: () => import('@/views/wizard/index.vue'),
-    meta: { title: '新建向导' }
+    path: '/listeners/http',
+    name: 'HttpListener',
+    component: () => import('@/views/listeners/http/index.vue'),
+    meta: { title: 'HTTP 监听器' }
   },
   {
-    path: '/http',
-    name: 'HttpConfig',
-    component: () => import('@/views/http/index.vue'),
-    meta: { title: 'HTTP 域配置' }
+    path: '/listeners/tcp',
+    name: 'TcpListener',
+    component: () => import('@/views/listeners/tcp/index.vue'),
+    meta: { title: 'TCP 监听器' }
   },
+  // 路由规则
   {
-    path: '/stream',
-    name: 'StreamConfig',
-    component: () => import('@/views/stream/index.vue'),
-    meta: { title: 'Stream 域配置' }
+    path: '/routes',
+    name: 'Routes',
+    component: () => import('@/views/routes/index.vue'),
+    meta: { title: '路由规则' }
   },
+  // 后端服务器组
   {
-    path: '/upstream',
-    name: 'UpstreamConfig',
-    component: () => import('@/views/upstream/index.vue'),
-    meta: { title: 'Upstream 配置' }
+    path: '/server-groups',
+    name: 'ServerGroups',
+    component: () => import('@/views/server-groups/index.vue'),
+    meta: { title: '后端服务器组' }
   },
+  // 后端服务器
   {
-    path: '/location',
-    name: 'LocationConfig',
-    component: () => import('@/views/location/index.vue'),
-    meta: { title: 'Location 配置' }
+    path: '/servers',
+    name: 'Servers',
+    component: () => import('@/views/servers/index.vue'),
+    meta: { title: '后端服务器' }
   }
 ]
 

@@ -5,15 +5,10 @@
       <div class="toolbar">
         <div class="toolbar-left">
           <el-button type="primary" @click="showCreateDialog">
-            <el-icon><Plus /></el-icon> 新建 Upstream
+            <el-icon><Plus /></el-icon> 新建服务器组
           </el-button>
           <el-button @click="loadData">
             <el-icon><Refresh /></el-icon> 刷新
-          </el-button>
-        </div>
-        <div class="toolbar-right">
-          <el-button @click="showHistoryDialog">
-            <el-icon><Clock /></el-icon> 历史版本
           </el-button>
         </div>
       </div>
@@ -22,34 +17,43 @@
     <!-- 数据表格 -->
     <el-card>
       <el-table :data="configItems" v-loading="loading" style="width: 100%">
-        <el-table-column prop="id" label="Upstream ID" width="150" />
-        <el-table-column label="负载均衡" width="120">
+        <el-table-column prop="id" label="组 ID" width="180" />
+        <el-table-column label="调度算法" width="120">
           <template #default="{ row }">
             <el-tag size="small">{{ getBalanceLabel(row.balance) }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="服务器列表" min-width="300">
+        <el-table-column label="成员服务器" min-width="300">
           <template #default="{ row }">
-            <div class="server-list">
+            <div class="server-list" v-if="row.server_refs && row.server_refs.length > 0">
               <el-tag
-                v-for="(server, index) in row.servers"
-                :key="index"
-                :type="server.backup ? 'warning' : 'success'"
+                v-for="serverId in row.server_refs"
+                :key="serverId"
+                type="success"
                 size="small"
                 class="server-tag"
               >
-                {{ server.host }}:{{ server.port }}
-                <span v-if="server.weight > 1">(w:{{ server.weight }})</span>
-                <span v-if="server.backup">(backup)</span>
+                {{ getServerDisplay(serverId) }}
               </el-tag>
             </div>
+            <span v-else class="text-muted">未配置服务器</span>
           </template>
         </el-table-column>
-        <el-table-column label="健康检查" width="100">
+        <el-table-column label="Nginx 自定义配置" min-width="200">
           <template #default="{ row }">
-            <el-tag :type="row.health_check?.enabled ? 'success' : 'info'" size="small">
-              {{ row.health_check?.enabled ? '已启用' : '未启用' }}
+            <span v-if="row.custom_directives" class="directives-preview">
+              {{ row.custom_directives.split('\n').slice(0, 2).join('; ') }}
+              {{ row.custom_directives.split('\n').length > 2 ? '...' : '' }}
+            </span>
+            <span v-else class="text-muted">无</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="引用状态" min-width="120">
+          <template #default="{ row }">
+            <el-tag v-if="row.referenced_by && row.referenced_by.length > 0" type="success">
+              已被引用
             </el-tag>
+            <el-tag v-else type="info">未被引用</el-tag>
           </template>
         </el-table-column>
         <el-table-column label="操作" width="200" fixed="right">
@@ -58,7 +62,7 @@
               <el-icon><Edit /></el-icon> 编辑
             </el-button>
             <el-popconfirm
-              title="确定要删除此配置吗？"
+              title="确定要删除此服务器组吗？"
               @confirm="deleteItem(row.id)"
             >
               <template #reference>
@@ -75,52 +79,42 @@
     <!-- 编辑对话框 -->
     <el-dialog
       v-model="editDialogVisible"
-      :title="isEdit ? '编辑 Upstream' : '新建 Upstream'"
+      :title="isEdit ? '编辑服务器组' : '新建服务器组'"
       width="700px"
     >
-      <el-form :model="editForm" label-width="120px" ref="formRef">
-        <el-form-item label="Upstream ID" prop="id" :rules="[{ required: true, message: '请输入 ID' }]">
+      <el-form :model="editForm" label-width="140px" ref="formRef">
+        <el-form-item label="组 ID" prop="id" :rules="[{ required: true, message: '请输入 ID' }]">
           <el-input v-model="editForm.id" :disabled="isEdit" placeholder="backend_api" />
         </el-form-item>
-        <el-form-item label="负载均衡">
+        <el-form-item label="调度算法">
           <el-select v-model="editForm.balance" style="width: 100%">
             <el-option label="轮询 (Round Robin)" value="round_robin" />
             <el-option label="最少连接 (Least Conn)" value="least_conn" />
             <el-option label="IP 哈希 (IP Hash)" value="ip_hash" />
           </el-select>
         </el-form-item>
-        <el-form-item label="服务器列表">
-          <div class="servers-config">
-            <div v-for="(server, index) in editForm.servers" :key="index" class="server-row">
-              <el-input v-model="server.host" placeholder="主机地址" style="width: 150px" />
-              <el-input-number v-model="server.port" :min="1" :max="65535" placeholder="端口" style="width: 120px" />
-              <el-input-number v-model="server.weight" :min="1" :max="100" placeholder="权重" style="width: 100px" />
-              <el-checkbox v-model="server.backup">备份</el-checkbox>
-              <el-button type="danger" :icon="Delete" circle @click="removeServer(index)" />
-            </div>
-            <el-button type="primary" plain @click="addServer">
-              <el-icon><Plus /></el-icon> 添加服务器
-            </el-button>
-          </div>
+        <el-form-item label="成员服务器">
+          <el-transfer
+            v-model="editForm.server_refs"
+            :data="availableServers"
+            :titles="['可选服务器', '已选服务器']"
+            :props="{
+              key: 'id',
+              label: 'display'
+            }"
+            filterable
+            filter-placeholder="搜索服务器"
+          />
         </el-form-item>
-        <el-divider content-position="left">健康检查</el-divider>
-        <el-form-item label="启用健康检查">
-          <el-switch v-model="editForm.health_check.enabled" />
-        </el-form-item>
-        <template v-if="editForm.health_check.enabled">
-          <el-form-item label="检查间隔">
-            <el-input v-model="editForm.health_check.interval" placeholder="5s" />
-          </el-form-item>
-          <el-form-item label="失败阈值">
-            <el-input-number v-model="editForm.health_check.fails" :min="1" :max="10" />
-          </el-form-item>
-          <el-form-item label="恢复阈值">
-            <el-input-number v-model="editForm.health_check.passes" :min="1" :max="10" />
-          </el-form-item>
-        </template>
-        <el-divider content-position="left">连接配置</el-divider>
-        <el-form-item label="保持连接数">
-          <el-input-number v-model="editForm.keepalive" :min="0" :max="1000" />
+
+        <el-divider content-position="left">Nginx 自定义配置</el-divider>
+        <el-form-item label="自定义指令">
+          <el-input
+            v-model="editForm.custom_directives"
+            type="textarea"
+            :rows="4"
+            placeholder="每行一条 nginx 指令，例如:&#10;keepalive 32&#10;keepalive_timeout 60s"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
@@ -132,15 +126,15 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { configApi } from '@/api/config'
 import { ElMessage } from 'element-plus'
-import { Delete, Plus } from '@element-plus/icons-vue'
 
-const DOMAIN = 'upstream'
+const DOMAIN = 'server-groups'
 
 const loading = ref(false)
 const configItems = ref([])
+const allServers = ref([])
 const editDialogVisible = ref(false)
 const isEdit = ref(false)
 const formRef = ref(null)
@@ -148,16 +142,28 @@ const formRef = ref(null)
 const editForm = reactive({
   id: '',
   balance: 'round_robin',
-  servers: [{ host: '', port: 8080, weight: 1, backup: false }],
-  keepalive: 32,
-  health_check: {
-    enabled: false,
-    interval: '5s',
-    fails: 3,
-    passes: 2
-  }
+  server_refs: [],
+  custom_directives: ''
 })
 
+// 可用服务器列表（用于穿梭框）
+const availableServers = computed(() => {
+  return allServers.value.map(s => ({
+    id: s.id,
+    display: `${s.id} (${s.host}:${s.port})`
+  }))
+})
+
+// 获取服务器显示名称
+const getServerDisplay = (serverId) => {
+  const server = allServers.value.find(s => s.id === serverId)
+  if (server) {
+    return `${server.id}`
+  }
+  return serverId
+}
+
+// 获取调度算法标签
 const getBalanceLabel = (balance) => {
   const labels = {
     round_robin: '轮询',
@@ -167,6 +173,7 @@ const getBalanceLabel = (balance) => {
   return labels[balance] || balance
 }
 
+// 加载服务器组数据
 const loadData = async () => {
   loading.value = true
   try {
@@ -179,43 +186,48 @@ const loadData = async () => {
   }
 }
 
+// 加载所有后端服务器
+const loadServers = async () => {
+  try {
+    const data = await configApi.list('servers')
+    allServers.value = data.items || []
+  } catch (e) {
+    console.error('加载服务器列表失败:', e)
+  }
+}
+
 const showCreateDialog = () => {
   isEdit.value = false
   Object.assign(editForm, {
     id: '',
     balance: 'round_robin',
-    servers: [{ host: '', port: 8080, weight: 1, backup: false }],
-    keepalive: 32,
-    health_check: { enabled: false, interval: '5s', fails: 3, passes: 2 }
+    server_refs: [],
+    custom_directives: ''
   })
   editDialogVisible.value = true
 }
 
 const editItem = (item) => {
   isEdit.value = true
-  Object.assign(editForm, JSON.parse(JSON.stringify(item)))
-  editForm.servers.forEach(s => {
-    if (s.backup === undefined) s.backup = false
+  Object.assign(editForm, {
+    ...item,
+    server_refs: item.server_refs || [],
+    custom_directives: item.custom_directives || ''
   })
   editDialogVisible.value = true
-}
-
-const addServer = () => {
-  editForm.servers.push({ host: '', port: 8080, weight: 1, backup: false })
-}
-
-const removeServer = (index) => {
-  editForm.servers.splice(index, 1)
 }
 
 const saveItem = async () => {
   try {
     await formRef.value?.validate()
+    const payload = { ...editForm }
+    if (!payload.custom_directives) delete payload.custom_directives
+
     if (isEdit.value) {
-      await configApi.update(DOMAIN, editForm.id, editForm)
+      await configApi.update(DOMAIN, editForm.id, payload)
       ElMessage.success('更新成功')
     } else {
-      await configApi.create(DOMAIN, editForm)
+      await configApi.create(DOMAIN, payload)
       ElMessage.success('创建成功')
     }
     editDialogVisible.value = false
@@ -235,8 +247,9 @@ const deleteItem = async (id) => {
   }
 }
 
-onMounted(() => {
-  loadData()
+onMounted(async () => {
+  await loadServers()
+  await loadData()
 })
 </script>
 
@@ -266,14 +279,12 @@ onMounted(() => {
   margin: 2px;
 }
 
-.servers-config {
-  width: 100%;
+.text-muted {
+  color: #909399;
 }
 
-.server-row {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-  margin-bottom: 10px;
+.directives-preview {
+  color: #606266;
+  font-size: 13px;
 }
 </style>

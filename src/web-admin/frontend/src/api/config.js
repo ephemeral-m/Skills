@@ -48,16 +48,6 @@ export const configApi = {
   // 验证配置
   validate(domain, data) {
     return api.post(`/config/${domain}/validate`, data)
-  },
-
-  // 获取历史版本
-  history(domain) {
-    return api.get(`/config/${domain}/history`)
-  },
-
-  // 回滚配置
-  rollback(domain, version) {
-    return api.post(`/config/${domain}/rollback`, { version })
   }
 }
 
@@ -91,6 +81,34 @@ export const statusApi = {
   // 获取所有状态
   all() {
     return api.get('/status/all')
+  },
+
+  // 获取 Loadbalance 模块信息
+  loadbalance() {
+    return api.get('/status/loadbalance')
+  },
+
+  // 获取转发规则配置状态
+  forwardRules() {
+    return api.get('/status/forward-rules')
+  }
+}
+
+// 部署 API
+export const deployApi = {
+  // 预览配置
+  preview() {
+    return api.post('/deploy/preview', {})
+  },
+
+  // 应用配置
+  apply() {
+    return api.post('/deploy/apply', {})
+  },
+
+  // 获取部署状态
+  status() {
+    return api.get('/deploy/status')
   }
 }
 
