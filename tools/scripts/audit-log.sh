@@ -102,8 +102,8 @@ echo ""
 
 if [[ -f "$AUDIT_LOG" ]]; then
     # 统计信息
-    local total=$(wc -l < "$AUDIT_LOG" 2>/dev/null || echo 0)
-    local failed=$(grep -c '\[✗\]' "$AUDIT_LOG" 2>/dev/null || echo 0)
+    total=$(wc -l < "$AUDIT_LOG" 2>/dev/null || echo 0)
+    failed=$(grep -c '\[✗\]' "$AUDIT_LOG" 2>/dev/null || echo 0)
     echo -e "${BLUE}统计:${NC} 总计 $total 条记录, $failed 条失败"
     echo ""
 
@@ -111,7 +111,7 @@ if [[ -f "$AUDIT_LOG" ]]; then
     echo ""
 
     # 过滤并显示
-    local cmd="tail -n $LINES \"$AUDIT_LOG\""
+    cmd="tail -n $LINES \"$AUDIT_LOG\""
     if [[ -n "$TOOL_FILTER" ]]; then
         cmd="grep \"$TOOL_FILTER\" \"$AUDIT_LOG\" | tail -n $LINES"
     fi

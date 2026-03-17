@@ -29,8 +29,8 @@ development_model:
       - "服务启动/停止/测试"
       - "生产流量转发"
     path_mapping:
-      local: "D:\\Coding\\Code\\Dev\\Skills"
-      remote: "/home/mxp/Skills"
+      local: "D:\\m30020610\\WorkSpace\\Skills"
+      remote: "/home/m30020610/Skills"
 
   dev_cli_bridge:
     description: "Python CLI 作为本地与远程的桥梁"
