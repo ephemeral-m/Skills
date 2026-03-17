@@ -15,6 +15,7 @@ Dev CLI - 统一开发命令入口
 """
 
 import argparse
+import fnmatch
 import io
 import json
 import os
@@ -208,6 +209,11 @@ class SSHExecutor:
             def should_exclude(path: str) -> bool:
                 """检查路径是否应该被排除"""
                 for pattern in normalized_exclude:
+                    # 通配符匹配 (如 ~$*, *.o)
+                    if '*' in pattern or '?' in pattern:
+                        # 匹配文件名
+                        if fnmatch.fnmatch(path, pattern) or fnmatch.fnmatch(Path(path).name, pattern):
+                            return True
                     # 精确匹配或前缀匹配目录
                     if path == pattern or path.startswith(pattern + '/'):
                         return True

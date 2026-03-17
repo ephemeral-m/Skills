@@ -1,0 +1,71 @@
+# gray_router 示例配置
+# 放置于 http 块内
+
+lua_package_path "/path/to/plugins/?.lua;;";
+
+# 定义后端服务器
+upstream backend {
+    server 192.168.1.10:8080;
+    keepalive 32;
+}
+
+# 初始化插件
+init_worker_by_lua_block {
+    local plugin = require "gray_router.gray_router"
+    local ok, err = plugin.init_worker({
+        -- 灰度标签匹配模式
+        tag_pattern = "gray=true",
+
+        -- 灰度响应配置
+        response = {
+            status = 200,
+            headers = {
+                ["X-Gray"] = "true",
+                ["X-Gray-Version"] = "v1.0.0",
+                ["Content-Type"] = "application/json; charset=utf-8"
+            },
+            body = '{"code": 0, "message": "gray release response", "data": {"version": "v1.0.0"}}'
+        }
+    })
+    if not ok then
+        ngx.log(ngx.ERR, "gray_router init failed: ", err)
+    else
+        ngx.log(ngx.INFO, "gray_router initialized successfully")
+    end
+}
+
+# 服务器配置
+server {
+    listen 80;
+    server_name localhost;
+
+    # 请求体处理配置
+    lua_need_request_body on;
+    client_body_buffer_size 1m;
+    client_max_body_size 10m;
+
+    # API 路由
+    location /api/ {
+        # 请求预处理：读取请求体检查灰度标签
+        rewrite_by_lua_block {
+            require("gray_router.gray_router").prerouting()
+        }
+
+        # 路由决策：返回灰度响应或继续转发
+        access_by_lua_block {
+            require("gray_router.gray_router").postrouting()
+        }
+
+        # 代理到后端服务器
+        proxy_pass http://backend;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
+
+    # 健康检查端点（不经过插件）
+    location /health {
+        return 200 "OK";
+    }
+}

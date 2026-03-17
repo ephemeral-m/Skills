@@ -14,7 +14,8 @@ mkdir -p "tools/state/audit" 2>/dev/null || true
 INPUT_JSON=$(cat 2>/dev/null || echo "{}")
 
 # 使用 Python 处理，通过环境变量传递数据
-INPUT_JSON="$INPUT_JSON" SCRIPT_DIR="$SCRIPT_DIR" python3 -c '
+# PYTHONIOENCODING 确保 Windows 下中文输出正确
+PYTHONIOENCODING=utf-8 INPUT_JSON="$INPUT_JSON" SCRIPT_DIR="$SCRIPT_DIR" python3 -c '
 import sys
 import os
 
