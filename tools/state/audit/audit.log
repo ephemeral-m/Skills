@@ -167,3 +167,25 @@ h
 [2026-03-17T12:58:26Z] [✓] Read: 读取文件 - D:\m30020610\WorkSpace\Skills\src\web-admin\frontend\package.json
 [2026-03-17T12:58:26Z] [✓] Read: 读取文件 - D:\m30020610\WorkSpace\Skills\.claude\hooks\hooks_lib.py
 [2026-03-17T13:01:55Z] [✓] Write: 写入文件 - D:\m30020610\WorkSpace\Skills\docs\ARCHITECTURE.md
+[2026-03-19T11:18:47Z] [✓] Glob: 搜索文件 - skills/**/*.md
+[2026-03-19T11:18:47Z] [✓] Glob: 搜索文件 - **/*dev*
+[2026-03-19T11:18:53Z] [✓] Read: 读取文件 - D:\Coding\Code\Dev\Skills\tools\config\dev.yaml
+[2026-03-19T11:18:53Z] [✓] Glob: 搜索文件 - skills/*.md
+[2026-03-19T11:18:59Z] [✓] Glob: 搜索文件 - .claude/**/*.md
+[2026-03-19T11:18:59Z] [✓] Glob: 搜索文件 - **/*dev*.md
+[2026-03-19T11:19:06Z] [✓] Read: 读取文件 - D:\Coding\Code\Dev\Skills\.claude\skills\dev\SKILL.md
+[2026-03-19T11:20:09Z] [✓] Write: 写入文件 - D:\Coding\Code\Dev\Skills\.claude\skills\dev\SKILL.md
+[2026-03-19T11:20:59Z] [✓] Write: 写入文件 - D:\Coding\Code\Dev\Skills\tools\bin\dev
+[2026-03-19T11:21:11Z] [✓] Write: 写入文件 - D:\Coding\Code\Dev\Skills\tools\config\dev.yaml
+[2026-03-19T11:23:41Z] [✓] Write: 写入文件 - D:\Coding\Code\Dev\Skills\tools\bin\dev
+[2026-03-19T11:24:38Z] [✓] Bash: 执行命令 - where ssh 2>/dev/null || which ssh 2>/dev/null || echo "SSH not found"
+[2026-03-19T11:24:54Z] [✓] Edit: 编辑文件 - D:\Coding\Code\Dev\Skills\tools\bin\dev
+[2026-03-19T11:25:16Z] [✓] Edit: 编辑文件 - D:\Coding\Code\Dev\Skills\tools\bin\dev
+[2026-03-19T11:25:43Z] [✓] Edit: 编辑文件 - D:\Coding\Code\Dev\Skills\tools\bin\dev
+[2026-03-19T11:26:19Z] [✓] Bash: 执行命令 - ls -la "/c/Windows/System32/OpenSSH/ssh.exe" 2>/dev/null || ls -la "C:/Windows/S...
+[2026-03-19T11:26:36Z] [✓] Edit: 编辑文件 - D:\Coding\Code\Dev\Skills\tools\bin\dev
+[2026-03-19T11:29:20Z] [✓] Write: 写入文件 - D:\Coding\Code\Dev\Skills\tools\bin\dev
+[2026-03-19T11:32:34Z] [✓] Bash: 执行命令 - ls -la ~/.ssh/ 2>/dev/null || echo "目录不存在"
+[2026-03-19T11:32:43Z] [✓] Bash: 执行命令 - cat ~/.ssh/id_ed25519.pub
+[2026-03-19T11:33:46Z] [✓] Bash: 执行命令 - "D:\Program Files (x86)\Git\usr\bin\ssh.exe" -p 22 root@192.168.5.14 "echo 'SSH连...
+[2026-03-19T11:36:00Z] [✓] Bash: 执行命令 - python "D:\Coding\Code\Dev\Skills\tools\bin\dev" build

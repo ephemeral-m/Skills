@@ -1,598 +1,158 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Dev CLI - 统一开发命令入口
+Dev CLI - 统一开发命令入口 (Windows Only)
 
 用法:
-  dev all [module]         - 执行完整流水线 (sync → build → start → test)
-  dev build [module]       - 构建
-  dev test [module]        - 测试
-  dev start                - 启动服务
-  dev stop                 - 停止服务
-  dev sync                 - 同步代码
-  dev status               - 查看状态
-  dev analyze <type>       - 分析错误
+  dev build     - 构建
+  dev test      - 测试
+  dev start     - 启动服务
+  dev stop      - 停止服务
 """
 
-import argparse
-import fnmatch
 import io
-import json
 import os
-import re
 import subprocess
 import sys
-import tarfile
-import time
-from contextlib import redirect_stdout, redirect_stderr
-from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
-from typing import Dict, Any, List, Optional, Callable
 
 # 修复 Windows 终端中文编码
-if sys.platform == 'win32':
-    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
-
-try:
-    import paramiko
-    import yaml
-    HAS_DEPS = True
-except ImportError:
-    HAS_DEPS = False
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 # ============================================================
-# 常量
+# 绝对路径
 # ============================================================
 
 TOOLS_DIR = Path(__file__).parent.parent.resolve()
 PROJECT_ROOT = TOOLS_DIR.parent.resolve()
-RESULTS_DIR = TOOLS_DIR / "results"
 CONFIG_PATH = TOOLS_DIR / "config" / "dev.yaml"
-FIXERS_DIR = TOOLS_DIR / "fixers"
 
-# 颜色
-C = {'R': '\033[0;31m', 'G': '\033[0;32m', 'Y': '\033[1;33m', 'B': '\033[0;34m', 'N': '\033[0m'}
-
-# ============================================================
-# 数据类
-# ============================================================
-
-@dataclass
-class RemoteConfig:
-    """远程服务器配置"""
-    host: str
-    port: int = 22
-    user: str = ""
-    password: str = ""
-    workdir: str = ""
-
-@dataclass
-class CommandResult:
-    """命令执行结果"""
-    success: bool
-    returncode: int
-    stdout: str
-    stderr: str
-    duration: float
-    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
-
-@dataclass
-class StepResult:
-    """流水线步骤结果"""
-    name: str
-    code: int
-    output: str
-    duration: float
-    desc: str
+# Windows SSH 路径
+SSH_PATH = r"D:\Program Files (x86)\Git\usr\bin\ssh.exe"
 
 # ============================================================
 # 工具函数
 # ============================================================
 
-def log_i(msg: str): print(f"{C['B']}[INFO]{C['N']} {msg}")
-def log_s(msg: str): print(f"{C['G']}[SUCCESS]{C['N']} {msg}")
-def log_w(msg: str): print(f"{C['Y']}[WARN]{C['N']} {msg}")
-def log_e(msg: str): print(f"{C['R']}[ERROR]{C['N']} {msg}", file=sys.stderr)
+def log_i(msg: str): print(f"[INFO] {msg}")
+def log_s(msg: str): print(f"[OK] {msg}")
+def log_e(msg: str): print(f"[ERROR] {msg}", file=sys.stderr)
 
-def clean_ansi(text: str) -> str:
-    """移除 ANSI 颜色码"""
-    return re.sub(r'\033\[[0-9;]*m', '', text)
+def parse_yaml(path: Path) -> dict:
+    """简单 YAML 解析"""
+    result = {}
+    section = None
+    sub = None
 
-def format_output(text: str) -> str:
-    """格式化输出：清理颜色码，压缩空行"""
-    text = clean_ansi(text)
-    lines = [line.rstrip() for line in text.split('\n')]
-    result, prev_empty = [], False
-    for line in lines:
-        if not line.strip():
-            if not prev_empty:
-                result.append('')
-            prev_empty = True
-        else:
-            result.append(line)
-            prev_empty = False
-    while result and not result[0].strip():
-        result.pop(0)
-    while result and not result[-1].strip():
-        result.pop()
-    return '\n'.join(result)
-
-def load_yaml(path: Path) -> Dict:
-    """加载 YAML 配置"""
-    if not path.exists():
-        log_e(f"配置文件不存在: {path}")
-        sys.exit(1)
     with open(path, 'r', encoding='utf-8') as f:
-        return yaml.safe_load(f)
+        for line in f:
+            line = line.rstrip()
+            if not line or line.startswith('#'):
+                continue
 
-def save_json(path: Path, data: Dict):
-    """保存 JSON 文件"""
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with open(path, 'w', encoding='utf-8') as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+            indent = len(line) - len(line.lstrip())
+            line = line.strip()
 
-# ============================================================
-# SSH 执行器
-# ============================================================
+            if ':' in line:
+                key, _, val = line.partition(':')
+                key = key.strip()
+                val = val.strip()
 
-class SSHExecutor:
-    """SSH 远程执行器"""
+                if indent == 0:
+                    section = key
+                    sub = None
+                    result[key] = val if val else {}
+                elif indent == 2 and section:
+                    if val:
+                        if val.startswith('"') and val.endswith('"'):
+                            val = val[1:-1]
+                        elif val.startswith("'") and val.endswith("'"):
+                            val = val[1:-1]
+                        result[section][key] = val
+                    else:
+                        result[section][key] = {}
+                        sub = key
+                elif indent == 4 and sub and section:
+                    if val:
+                        if val.startswith('"') and val.endswith('"'):
+                            val = val[1:-1]
+                        elif val.startswith("'") and val.endswith("'"):
+                            val = val[1:-1]
+                        result[section][sub][key] = val
 
-    def __init__(self, config: RemoteConfig):
-        self.config = config
-        self._ssh = None
+    return result
 
-    def connect(self) -> bool:
-        """建立 SSH 连接"""
-        if not HAS_DEPS:
-            log_e("需要依赖: pip install paramiko pyyaml")
-            return False
-        try:
-            self._ssh = paramiko.SSHClient()
-            self._ssh.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-            self._ssh.connect(
-                self.config.host,
-                port=self.config.port,
-                username=self.config.user,
-                password=self.config.password,
-                timeout=30
-            )
-            return True
-        except Exception as e:
-            log_e(f"SSH 连接失败: {e}")
-            return False
+def load_config() -> dict:
+    if not CONFIG_PATH.exists():
+        log_e(f"配置文件不存在: {CONFIG_PATH}")
+        sys.exit(1)
+    try:
+        return parse_yaml(CONFIG_PATH)
+    except Exception as e:
+        log_e(f"配置解析失败: {e}")
+        sys.exit(1)
 
-    def close(self):
-        """关闭连接"""
-        if self._ssh:
-            self._ssh.close()
-            self._ssh = None
+def exec_remote(config: dict, cmd: str) -> int:
+    """远程执行命令"""
+    r = config.get('remote', {})
+    host = r.get('host', '')
+    port = r.get('port', 22)
+    user = r.get('user', '')
+    workdir = r.get('workdir', '')
 
-    def exec(self, cmd: str, timeout: int = 600) -> CommandResult:
-        """执行远程命令"""
-        full_cmd = f"cd {self.config.workdir} && {cmd}"
-        start = time.time()
+    if not all([host, user, workdir]):
+        log_e("配置缺少: host, user, workdir")
+        return 1
 
-        if self._ssh:
-            try:
-                _, stdout, stderr = self._ssh.exec_command(full_cmd, timeout=timeout)
-                out = stdout.read().decode('utf-8', errors='ignore')
-                err = stderr.read().decode('utf-8', errors='ignore')
-                code = stdout.channel.recv_exit_status()
-                return CommandResult(code == 0, code, out, err, time.time() - start)
-            except Exception as e:
-                return CommandResult(False, 1, "", str(e), 0)
-        else:
-            # 使用本地 ssh 命令
-            ssh_cmd = ["ssh", "-p", str(self.config.port),
-                       f"{self.config.user}@{self.config.host}", full_cmd]
-            result = subprocess.run(ssh_cmd, capture_output=True, text=True)
-            return CommandResult(result.returncode == 0, result.returncode,
-                               result.stdout, result.stderr, 0)
+    log_i(f"执行: {cmd}")
 
-    def sync(self, exclude: List[str]) -> bool:
-        """同步代码到远程"""
-        log_i(f"同步到 {self.config.user}@{self.config.host}:{self.config.workdir}")
-
-        try:
-            # 确保远程目录存在
-            self.exec("mkdir -p .")
-
-            # 预处理排除模式：标准化路径格式
-            normalized_exclude = []
-            for p in exclude:
-                p = p.rstrip('/').replace('\\', '/')
-                normalized_exclude.append(p)
-
-            def should_exclude(path: str) -> bool:
-                """检查路径是否应该被排除"""
-                for pattern in normalized_exclude:
-                    # 通配符匹配 (如 ~$*, *.o)
-                    if '*' in pattern or '?' in pattern:
-                        # 匹配文件名
-                        if fnmatch.fnmatch(path, pattern) or fnmatch.fnmatch(Path(path).name, pattern):
-                            return True
-                    # 精确匹配或前缀匹配目录
-                    if path == pattern or path.startswith(pattern + '/'):
-                        return True
-                return False
-
-            # 打包
-            buf = io.BytesIO()
-            with tarfile.open(fileobj=buf, mode='w:gz', encoding='utf-8') as tar:
-                for item in PROJECT_ROOT.iterdir():
-                    # 检查根目录是否被排除
-                    if should_exclude(item.name):
-                        continue
-
-                    # 使用 filter 过滤嵌套路径
-                    def tar_filter(tarinfo):
-                        rel_path = tarinfo.name.replace('\\', '/')
-                        if should_exclude(rel_path):
-                            return None
-                        return tarinfo
-
-                    tar.add(item, arcname=item.name, filter=tar_filter)
-
-            size = len(buf.getvalue()) / 1024 / 1024
-            log_i(f"打包: {size:.2f} MB")
-
-            # 上传并解压
-            sftp = self._ssh.open_sftp()
-            tmp_path = f"{self.config.workdir}/.sync.tar.gz"
-            with io.BytesIO(buf.getvalue()) as b:
-                sftp.putfo(b, tmp_path)
-            self.exec(f"tar -xzf {tmp_path} && rm -f {tmp_path}")
-            sftp.close()
-
-            log_s("同步成功")
-            return True
-        except Exception as e:
-            log_e(f"同步失败: {e}")
-            return False
-
-# ============================================================
-# 错误分析器
-# ============================================================
-
-class ErrorAnalyzer:
-    """错误分析器 - 匹配 YAML 规则"""
-
-    def __init__(self):
-        self.rules = {'compile': {}, 'runtime': {}, 'test': {}}
-        self._loaded = False
-
-    def _load_rules(self):
-        if self._loaded:
-            return
-        for error_type in ['compile', 'runtime', 'test']:
-            type_dir = FIXERS_DIR / error_type
-            if type_dir.exists():
-                for yaml_file in type_dir.glob('*.yaml'):
-                    try:
-                        data = load_yaml(yaml_file)
-                        lang = data.get('language', 'unknown')
-                        self.rules[error_type].setdefault(lang, []).extend(data.get('rules', []))
-                    except Exception:
-                        pass
-        self._loaded = True
-
-    def analyze(self, error_type: str, output: str) -> Dict:
-        """分析错误输出"""
-        self._load_rules()
-        errors = []
-
-        for lang, rules in self.rules.get(error_type, {}).items():
-            for rule in rules:
-                try:
-                    for match in re.finditer(rule.get('pattern', ''), output, re.M | re.I):
-                        suggestion = rule.get('fix', {}).get('message', '')
-                        for i, g in enumerate(match.groups(), 1):
-                            if g:
-                                suggestion = suggestion.replace(f'${i}', str(g))
-                        errors.append({
-                            'id': rule.get('id', 'unknown'),
-                            'severity': rule.get('severity', 'error'),
-                            'match': match.group(0)[:200],
-                            'suggestion': suggestion
-                        })
-                except re.error:
-                    continue
-
-        errors.sort(key=lambda x: {'critical': 0, 'error': 1, 'warning': 2}.get(x['severity'], 3))
-        return {'matched': len(errors) > 0, 'errors': errors[:10]}
-
-    def suggest_skill(self, error_type: str) -> str:
-        return {'compile': '/fix-compile', 'runtime': '/fix-runtime', 'test': '/fix-test'}.get(error_type, '/fix-loop')
-
-# ============================================================
-# 流水线
-# ============================================================
-
-class Pipeline:
-    """开发流水线"""
-
-    STEPS = [
-        ('sync', '同步代码到远程服务器'),
-        ('build', '编译构建项目'),
-        ('start', '启动服务 (负载均衡 + web-admin)'),
-        ('test', 'Lua语法 → Nginx配置 → Test::Nginx用例')
+    # 构造 SSH 命令
+    ssh_cmd = [
+        SSH_PATH,
+        '-p', str(port),
+        f"{user}@{host}",
+        f"cd {workdir} && {cmd}"
     ]
 
-    def __init__(self, cli: 'DevCLI'):
-        self.cli = cli
-        self.analyzer = ErrorAnalyzer()
-
-    def run(self, stop_on_failure: bool = True) -> int:
-        results = {}
-        start_time = time.time()
-
-        print(f"\n{C['B']}{'='*60}{C['N']}")
-        print(f"{C['B']}Dev Pipeline: {' → '.join(s[0] for s in self.STEPS)}{C['N']}")
-        print(f"{C['B']}{'='*60}{C['N']}\n")
-
-        for step_name, step_desc in self.STEPS:
-            print(f"{C['B']}[STEP]{C['N']} {step_name}: {step_desc}")
-
-            step_start = time.time()
-            code, output = getattr(self.cli, f'run_{step_name}')()
-            duration = time.time() - step_start
-
-            results[step_name] = StepResult(step_name, code, output, duration, step_desc)
-
-            if code != 0:
-                print(f"{C['R']}  ✗ 失败{C['N']} | 耗时: {duration:.2f}s")
-                analysis = self.analyzer.analyze(step_name, output)
-                if analysis['matched']:
-                    self._print_analysis(analysis)
-                print(f"\n{C['Y']}建议调用: {self.analyzer.suggest_skill(step_name)}{C['N']}")
-                if stop_on_failure:
-                    self._print_summary(results, time.time() - start_time, failed=True)
-                    return code
-            else:
-                print(f"{C['G']}  ✓ 完成{C['N']} | 耗时: {duration:.2f}s")
-
-        self._print_summary(results, time.time() - start_time, failed=False)
-        return 0
-
-    def _print_analysis(self, analysis: Dict):
-        print(f"\n{C['Y']}=== 错误分析 ==={C['N']}")
-        for i, err in enumerate(analysis['errors'][:5], 1):
-            sev_color = {'critical': C['R'], 'error': C['R'], 'warning': C['Y']}.get(err['severity'], C['N'])
-            print(f"\n{i}. [{sev_color}{err['severity'].upper()}{C['N']}] {err['id']}")
-            print(f"   匹配: {err['match'][:100]}...")
-            print(f"   建议: {err['suggestion'][:200]}")
-
-    def _print_summary(self, results: Dict[str, StepResult], duration: float, failed: bool):
-        print(f"\n{C['B']}{'='*60}{C['N']}")
-        print(f"{C['B']}Pipeline 摘要{C['N']}")
-        print(f"{C['B']}{'='*60}{C['N']}")
-
-        icon = f"{C['R']}✗{C['N']}" if failed else f"{C['G']}✓{C['N']}"
-        print(f"\n状态: {icon} {'失败' if failed else '成功'} | 总耗时: {duration:.2f}s")
-
-        print(f"\n{'步骤':<8} {'状态':<12} {'耗时':<10} {'描述'}")
-        print("-" * 60)
-
-        for step, r in results.items():
-            status = f"{C['G']}✓ 完成{C['N']}" if r.code == 0 else f"{C['R']}✗ 失败{C['N']}"
-            print(f"{step:<8} {status} {r.duration:.2f}s      {r.desc}")
-        print()
-
-# ============================================================
-# CLI 主类
-# ============================================================
-
-class DevCLI:
-    """开发命令入口"""
-
-    def __init__(self):
-        self.config = load_yaml(CONFIG_PATH)
-        self.remote = RemoteConfig(
-            host=self.config['remote'].get('host', ''),
-            port=self.config['remote'].get('port', 22),
-            user=self.config['remote'].get('user', ''),
-            password=str(self.config['remote'].get('password', '')),
-            workdir=self.config['remote'].get('workdir', '')
-        )
-        self.ssh = SSHExecutor(self.remote)
-
-    def _exec(self, cmd: str) -> CommandResult:
-        """执行远程命令"""
-        if not self.ssh._ssh:
-            self.ssh.connect()
-        return self.ssh.exec(cmd)
-
-    def _exec_and_print(self, cmd: str, success_msg: str, fail_msg: str) -> int:
-        """执行命令并打印结果"""
-        result = self._exec(cmd)
-        output = format_output(result.stdout)
-        if output:
-            print(output)
-        if result.stderr:
-            print(format_output(result.stderr), file=sys.stderr)
-        if result.success:
-            log_s(success_msg)
+    # 执行
+    try:
+        result = subprocess.run(ssh_cmd)
+        if result.returncode == 0:
+            log_s("成功")
         else:
-            log_e(fail_msg)
+            log_e(f"失败 (code: {result.returncode})")
         return result.returncode
-
-    # ==================== 流水线步骤 ====================
-
-    def run_sync(self) -> tuple:
-        """同步步骤"""
-        if not self.ssh.connect():
-            return 1, "SSH 连接失败"
-        exclude = self.config.get('sync', {}).get('exclude', [])
-        success = self.ssh.sync(exclude)
-        return (0, "同步成功") if success else (1, "同步失败")
-
-    def run_build(self) -> tuple:
-        """构建步骤"""
-        module = self.config.get('modules', {}).get('openresty', {})
-        cmd = module.get('build', 'bash tools/scripts/build.sh')
-        result = self._exec(cmd)
-
-        # 保存结果
-        save_json(RESULTS_DIR / "build-openresty.json", {
-            "command": "build", "module": "openresty",
-            "exit_code": result.returncode, "duration": result.duration,
-            "success": result.success, "timestamp": result.timestamp,
-            "output": format_output(result.stdout).split('\n') if result.stdout else [],
-            "error_output": format_output(result.stderr).split('\n') if result.stderr else []
-        })
-
-        output = format_output(result.stdout + result.stderr)
-        return result.returncode, output
-
-    def run_start(self) -> tuple:
-        """启动服务步骤"""
-        result = self._exec("bash tools/scripts/start.sh")
-        return result.returncode, format_output(result.stdout + result.stderr)
-
-    def run_test(self) -> tuple:
-        """测试步骤"""
-        result = self._exec("bash tools/scripts/test.sh")
-
-        # 保存结果
-        save_json(RESULTS_DIR / "test-dt.json", {
-            "command": "test", "module": "dt",
-            "exit_code": result.returncode, "duration": result.duration,
-            "success": result.success, "timestamp": result.timestamp,
-            "output": format_output(result.stdout).split('\n') if result.stdout else [],
-            "error_output": format_output(result.stderr).split('\n') if result.stderr else []
-        })
-
-        return result.returncode, format_output(result.stdout + result.stderr)
-
-    # ==================== 独立命令 ====================
-
-    def cmd_all(self, stop_on_failure: bool = True) -> int:
-        return Pipeline(self).run(stop_on_failure)
-
-    def cmd_build(self) -> int:
-        code, output = self.run_build()
-        if output:
-            print(output)
-        return code
-
-    def cmd_test(self, dt_file: str = None) -> int:
-        if dt_file is not None:
-            # 运行指定测试
-            cmd = f"bash tools/scripts/test.sh --dt {dt_file}" if dt_file else "bash tools/scripts/test.sh --dt"
-            return self._exec_and_print(cmd, "测试通过", "测试失败")
-        code, output = self.run_test()
-        if output:
-            print(output)
-        return code
-
-    def cmd_start(self) -> int:
-        return self._exec_and_print("bash tools/scripts/start.sh", "服务启动成功", "服务启动失败")
-
-    def cmd_stop(self) -> int:
-        return self._exec_and_print("bash tools/scripts/stop.sh", "服务停止成功", "服务停止失败")
-
-    def cmd_sync(self) -> int:
-        code, _ = self.run_sync()
-        return code
-
-    def cmd_status(self) -> int:
-        print(f"{C['B']}项目: {self.config.get('project', {}).get('name', 'project')}{C['N']}")
-        for label, pattern in [("构建", "build-*.json"), ("测试", "test-*.json")]:
-            print(f"\n最近{label}:")
-            if RESULTS_DIR.exists():
-                for f in sorted(RESULTS_DIR.glob(pattern), key=lambda x: x.stat().st_mtime, reverse=True)[:5]:
-                    with open(f, 'r', encoding='utf-8') as fp:
-                        data = json.load(fp)
-                    print(f"  {'✓' if data.get('success') else '✗'} {f.stem}")
-        return 0
-
-    def cmd_analyze(self, error_type: str, result_file: str = None) -> int:
-        """分析错误"""
-        # 查找结果文件
-        if result_file:
-            path = Path(result_file)
-        else:
-            patterns = {'compile': 'build-*.json', 'runtime': 'test-*.json', 'test': 'test-*.json'}
-            files = sorted(RESULTS_DIR.glob(patterns.get(error_type, '*.json')),
-                          key=lambda x: x.stat().st_mtime, reverse=True)
-            if not files:
-                log_e("未找到结果文件")
-                return 1
-            path = files[0]
-
-        log_i(f"分析文件: {path}")
-        with open(path, 'r', encoding='utf-8') as fp:
-            data = json.load(fp)
-
-        # 合并输出
-        output = '\n'.join(
-            (data.get('output') or []) + (data.get('error_output') or [])
-        )
-        if not output:
-            log_w("结果文件为空或成功")
-            return 0
-
-        # 分析
-        result = ErrorAnalyzer().analyze(error_type, output)
-        if result['matched']:
-            for i, err in enumerate(result['errors'][:5], 1):
-                print(f"\n{i}. [{err['severity']}] {err['id']}")
-                print(f"   匹配: {err['match'][:100]}")
-                print(f"   建议: {err['suggestion'][:200]}")
-
-        print(f"\n{C['Y']}建议调用: {ErrorAnalyzer().suggest_skill(error_type)}{C['N']}")
-        return 0
+    except FileNotFoundError:
+        log_e(f"SSH 未找到: {SSH_PATH}")
+        return 1
+    except Exception as e:
+        log_e(f"异常: {e}")
+        return 1
 
 # ============================================================
-# 主函数
+# 命令
 # ============================================================
+
+COMMANDS = {
+    'build': 'bash tools/scripts/build.sh',
+    'test': 'bash tools/scripts/test.sh',
+    'start': 'bash tools/scripts/start.sh',
+    'stop': 'bash tools/scripts/stop.sh',
+}
 
 def main():
-    parser = argparse.ArgumentParser(description='Dev CLI - 统一开发命令入口')
-    sub = parser.add_subparsers(dest='command', help='可用命令')
-
-    # all
-    all_p = sub.add_parser('all', help='执行完整流水线')
-    all_p.add_argument('-c', '--continue-on-error', action='store_true', help='失败时继续')
-
-    # build / test
-    sub.add_parser('build', help='构建模块')
-    test_p = sub.add_parser('test', help='运行测试')
-    test_p.add_argument('--dt', '-d', nargs='?', const='', help='运行 Test::Nginx 用例')
-
-    # 其他命令
-    sub.add_parser('start', help='启动服务')
-    sub.add_parser('stop', help='停止服务')
-    sub.add_parser('sync', help='同步代码')
-    sub.add_parser('status', help='查看状态')
-
-    # analyze
-    analyze_p = sub.add_parser('analyze', help='分析错误')
-    analyze_p.add_argument('type', choices=['compile', 'runtime', 'test'])
-    analyze_p.add_argument('file', nargs='?', help='结果文件路径')
-
-    args = parser.parse_args()
-    if not args.command:
-        parser.print_help()
+    if len(sys.argv) < 2:
+        print("用法: dev [build|test|start|stop]")
         sys.exit(0)
 
-    cli = DevCLI()
+    cmd = sys.argv[1]
+    if cmd not in COMMANDS:
+        log_e(f"未知命令: {cmd}")
+        sys.exit(1)
 
-    cmd_map = {
-        'all': lambda: cli.cmd_all(not args.continue_on_error),
-        'build': cli.cmd_build,
-        'test': lambda: cli.cmd_test(getattr(args, 'dt', None)),
-        'start': cli.cmd_start,
-        'stop': cli.cmd_stop,
-        'sync': cli.cmd_sync,
-        'status': cli.cmd_status,
-        'analyze': lambda: cli.cmd_analyze(args.type, args.file)
-    }
-
-    sys.exit(cmd_map[args.command]())
+    config = load_config()
+    sys.exit(exec_remote(config, COMMANDS[cmd]))
 
 if __name__ == '__main__':
     main()

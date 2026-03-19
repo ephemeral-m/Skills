@@ -1,48 +1,16 @@
 # Dev CLI 配置文件
 
-# 项目信息
-project:
-  name: Skills
-  languages: [c, lua]
-
-# 远程机器配置
+# 远程服务器配置
 remote:
-  host: 192.168.168.218
+  host: 192.168.5.14
   port: 22
-  user: m30020610
-  password: 123456
-  workdir: /home/m30020610/Skills
+  user: root
+  password: "123456"
+  workdir: /home/mxp/Skills
 
-# 模块定义
-modules:
-  openresty:
-    language: c
-    path: src
-    build: bash tools/scripts/build.sh
-    test: bash tools/scripts/test.sh
-
-# 同步排除
-sync:
-  exclude:
-    - .git/
-    - tools/results/
-    - tools/state/
-    - .idea/
-    - .vscode/
-    - "*.o"
-    - "*.a"
-    - "*.so"
-    - "~$*"                          # Office 临时文件
-    - src/web-admin/data/          # 用户配置数据，不覆盖
-
-# Pipeline 配置
-pipeline:
-  # 执行顺序
-  steps:
-    - sync
-    - build
-    - test
-  # 失败行为
-  stop_on_failure: true
-  # 错误分析器路径
-  fixers_dir: tools/fixers
+# 脚本命令
+scripts:
+  build: bash tools/scripts/build.sh
+  test: bash tools/scripts/test.sh
+  start: bash tools/scripts/start.sh
+  stop: bash tools/scripts/stop.sh
