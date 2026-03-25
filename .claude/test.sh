@@ -10,23 +10,134 @@
       "Bash(python tools/bin/dev all)",
       "Bash(find D:/Coding/Code/Dev/Skills/src/web-admin -name *.vue -o -name *.ts)",
       "Bash(find D:/Coding/Code/Dev/Skills/src/lua-plugins -name *.lua)",
-      "Bash(find D:/Coding/Code/Dev/Skills/src/web-admin/backend -type f -name *.py -o -name *.js -o -name *.ts)",
-      "Bash(where claude:*)",
-      "Bash(curl -s http://127.0.0.1:9876/status)",
-      "Bash(powershell -Command \"\\(Invoke-WebRequest -Uri ''http://127.0.0.1:9876/status'' -UseBasicParsing\\).Content\")",
-      "Bash(taskkill //F //IM python.exe)",
-      "Bash(timeout 30 claude)",
-      "Bash(where bash.exe)",
-      "Read(//c/Program Files/Git/bin/**)",
-      "Read(//c/Program Files/Git/usr/bin/**)",
-      "Bash(export CLAUDE_CODE_GIT_BASH_PATH=\"D:/Program Files \\(x86\\)/Git/usr/bin/bash.exe\" echo \"测试 Claude 管道模式...\" echo \"你好，简短回复即可\")",
-      "Read(//d/Program Files \\(x86\\)/Git/bin/**)",
-      "Read(//d/Program Files \\(x86\\)/Git/usr/bin/**)",
-      "Bash(export CLAUDE_CODE_GIT_BASH_PATH=\"D:\\\\Program Files \\(x86\\)\\\\Git\\\\bin\\\\bash.exe\" echo \"测试 Claude 管道模式...\" echo \"你好，简短回复即可\")",
-      "Bash(timeout 60 claude)",
-      "Bash(pip show:*)",
-      "Bash(pip install:*)",
-      "Bash(python -c \":*)"
+      "Bash(find D:/Coding/Code/Dev/Skills/src/web-admin/backend -type f -name *.py -o -name *.js -o -name *.ts)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/PreToolUse.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/notify.py permission"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/PostToolUse.sh"
+          },
+          {
+            "type": "command",
+            "command": ".claude/hooks/AuditLog.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/AuditLog.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/AuditLog.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/AuditLog.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Glob",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/AuditLog.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Grep",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/AuditLog.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "WebFetch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/AuditLog.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "WebSearch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/AuditLog.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/AuditLog.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Agent",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/AuditLog.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python .claude/hooks/notify.py complete"
+          }
+        ]
+      }
     ]
   },
   "skills": {
