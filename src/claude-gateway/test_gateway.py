@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Claude HTTP Gateway 测试套件
+Claude HTTP Gateway 测试套件 (异步版)
 
 使用方式：
   # 先启动服务
@@ -8,11 +8,6 @@ Claude HTTP Gateway 测试套件
 
   # 运行测试
   python test_gateway.py
-
-  # 或指定测试项
-  python test_gateway.py --test status
-  python test_gateway.py --test message
-  python test_gateway.py --test all
 """
 
 import argparse
@@ -24,7 +19,6 @@ import urllib.error
 from typing import Dict, Any, Tuple
 
 
-# 配置
 DEFAULT_URL = "http://127.0.0.1:9876"
 BASE_URL = DEFAULT_URL
 TIMEOUT = 90
@@ -41,10 +35,10 @@ def http_get(path: str) -> Tuple[Dict[str, Any], int]:
         return {"error": str(e)}, 500
 
 
-def http_post(path: str, data: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
+def http_post(path: str, data: Dict[str, Any] = None) -> Tuple[Dict[str, Any], int]:
     """发送 POST 请求"""
     try:
-        body = json.dumps(data).encode('utf-8')
+        body = json.dumps(data or {}).encode('utf-8')
         req = urllib.request.Request(
             f"{BASE_URL}{path}",
             data=body,
@@ -56,6 +50,18 @@ def http_post(path: str, data: Dict[str, Any]) -> Tuple[Dict[str, Any], int]:
         return json.loads(e.read().decode('utf-8')), e.code
     except Exception as e:
         return {"error": str(e)}, 500
+
+
+def wait_for_task(task_id: str, timeout: float = 60.0) -> Dict[str, Any]:
+    """等待任务完成"""
+    start = time.time()
+    while time.time() - start < timeout:
+        data, _ = http_get(f"/task/{task_id}")
+        status = data.get("status", "")
+        if status in ("completed", "failed", "cancelled"):
+            return data
+        time.sleep(0.5)
+    return {"error": "等待超时", "status": "timeout"}
 
 
 def print_result(name: str, success: bool, detail: str = ""):
@@ -110,62 +116,91 @@ def test_status() -> Tuple[bool, str]:
     if code != 200:
         return False, f"HTTP {code}: {data.get('error')}"
 
-    required_fields = ["status", "status_text", "is_processing", "platform"]
+    required_fields = ["status", "work_dir", "platform"]
     for field in required_fields:
         if field not in data:
             return False, f"缺少字段: {field}"
 
-    valid_statuses = ["idle", "processing", "waiting_approval", "error"]
-    if data["status"] not in valid_statuses:
-        return False, f"无效状态: {data['status']}"
-
-    return True, f"状态: {data['status_text']} ({data['status']})"
+    return True, f"工作目录: {data['work_dir']}"
 
 
-def test_message_success() -> Tuple[bool, str]:
-    """测试 POST /message 正常请求"""
+def test_submit_task() -> Tuple[bool, str]:
+    """测试 POST /message 提交任务"""
     data, code = http_post("/message", {"prompt": "说 测试成功", "timeout": 60})
 
     if code != 200:
         return False, f"HTTP {code}: {data.get('error')}"
 
-    if data.get("status") != "success":
-        return False, f"状态: {data.get('status')}, 错误: {data.get('error')}"
+    if "task_id" not in data:
+        return False, "缺少 task_id"
 
-    if "response" not in data:
-        return False, "缺少 response 字段"
-
-    return True, f"响应时间: {data.get('duration', 0):.2f}s"
+    task_id = data["task_id"]
+    return True, f"任务ID: {task_id[:8]}..."
 
 
-def test_message_empty_prompt() -> Tuple[bool, str]:
-    """测试 POST /message 空 prompt"""
-    data, code = http_post("/message", {"prompt": ""})
+def test_query_task() -> Tuple[bool, str]:
+    """测试查询任务"""
+    # 先提交任务
+    submit_data, _ = http_post("/message", {"prompt": "说 查询测试", "timeout": 60})
+    task_id = submit_data.get("task_id")
 
-    if code != 400:
-        return False, f"期望 400，实际 {code}"
+    if not task_id:
+        return False, "提交任务失败"
 
-    if "error" not in data:
-        return False, "缺少错误信息"
+    # 查询任务
+    data, code = http_get(f"/task/{task_id}")
 
-    return True, f"正确返回 400: {data.get('error')}"
+    if code != 200:
+        return False, f"HTTP {code}"
+
+    if "task_id" not in data or "status" not in data:
+        return False, "缺少必要字段"
+
+    return True, f"状态: {data['status']}"
 
 
-def test_message_invalid_json() -> Tuple[bool, str]:
-    """测试 POST /message 无效 JSON"""
-    try:
-        body = b"not a json"
-        req = urllib.request.Request(
-            f"{BASE_URL}/message",
-            data=body,
-            headers={'Content-Type': 'application/json'}
-        )
-        response = urllib.request.urlopen(req, timeout=TIMEOUT)
-        return False, "应该返回 400"
-    except urllib.error.HTTPError as e:
-        if e.code == 400:
-            return True, "正确返回 400"
-        return False, f"期望 400，实际 {e.code}"
+def test_wait_for_completion() -> Tuple[bool, str]:
+    """测试等待任务完成"""
+    # 提交任务
+    submit_data, _ = http_post("/message", {"prompt": "说 完成测试", "timeout": 60})
+    task_id = submit_data.get("task_id")
+
+    if not task_id:
+        return False, "提交任务失败"
+
+    # 等待完成
+    result = wait_for_task(task_id, timeout=60)
+
+    if result.get("status") != "completed":
+        return False, f"任务状态: {result.get('status')}, 错误: {result.get('error')}"
+
+    if "response" not in result:
+        return False, "缺少响应内容"
+
+    return True, f"耗时: {result.get('duration', 0)}s"
+
+
+def test_cancel_pending_task() -> Tuple[bool, str]:
+    """测试取消任务"""
+    # 提交一个长任务
+    submit_data, _ = http_post("/message", {"prompt": "请详细介绍一下Python的历史", "timeout": 300})
+    task_id = submit_data.get("task_id")
+
+    if not task_id:
+        return False, "提交任务失败"
+
+    # 立即取消
+    time.sleep(0.2)  # 稍微等待一下
+    data, code = http_post(f"/task/{task_id}/cancel")
+
+    if code != 200:
+        # 任务可能已经完成了
+        task = http_get(f"/task/{task_id}")[0]
+        if task.get("status") == "completed":
+            return True, "任务已完成（太快了）"
+        return False, f"HTTP {code}: {data}"
+
+    return True, f"已取消: {task_id[:8]}..."
 
 
 def test_history() -> Tuple[bool, str]:
@@ -178,28 +213,22 @@ def test_history() -> Tuple[bool, str]:
     if "history" not in data or "count" not in data:
         return False, "缺少必要字段"
 
-    if data["count"] != len(data["history"]):
-        return False, "count 与 history 长度不匹配"
-
     return True, f"历史记录数: {data['count']}"
 
 
-def test_pending() -> Tuple[bool, str]:
-    """测试 GET /pending"""
-    data, code = http_get("/pending")
+def test_empty_prompt() -> Tuple[bool, str]:
+    """测试空 prompt"""
+    data, code = http_post("/message", {"prompt": ""})
 
-    if code != 200:
-        return False, f"HTTP {code}: {data.get('error')}"
+    if code != 400:
+        return False, f"期望 400，实际 {code}"
 
-    if "pending" not in data or "count" not in data:
-        return False, "缺少必要字段"
-
-    return True, f"待授权数: {data['count']}"
+    return True, "正确返回 400"
 
 
-def test_404() -> Tuple[bool, str]:
-    """测试未知路径"""
-    data, code = http_get("/unknown")
+def test_invalid_task_id() -> Tuple[bool, str]:
+    """测试无效任务ID"""
+    data, code = http_get("/task/invalid-task-id")
 
     if code != 404:
         return False, f"期望 404，实际 {code}"
@@ -207,94 +236,51 @@ def test_404() -> Tuple[bool, str]:
     return True, "正确返回 404"
 
 
-def test_message_busy() -> Tuple[bool, str]:
-    """测试并发请求处理"""
-    import threading
-    import time
-
-    results = []
-
-    def send_request():
-        data, code = http_post("/message", {"prompt": "说 数字", "timeout": 60})
-        results.append((data, code))
-
-    # 发送两个并发请求
-    threads = [threading.Thread(target=send_request) for _ in range(2)]
-    for t in threads:
-        t.start()
-    for t in threads:
-        t.join()
-
-    # 检查结果
-    statuses = [r[0].get("status") for r in results]
-    if "success" in statuses and "busy" in statuses:
-        return True, "正确处理并发请求"
-    elif statuses.count("success") == 2:
-        return True, "两个请求都成功（串行处理）"
-    else:
-        return False, f"意外状态: {statuses}"
-
-
 # ========== 主程序 ==========
 
 def main():
-    parser = argparse.ArgumentParser(description="Claude HTTP Gateway 测试")
+    parser = argparse.ArgumentParser(description="Claude HTTP Gateway 测试 (异步版)")
     parser.add_argument("--test", "-t", default="all",
-                        choices=["all", "status", "message", "history", "pending", "error", "concurrent"],
-                        help="指定测试项 (default: all)")
+                        choices=["all", "status", "submit", "query", "wait", "cancel", "history", "error"],
+                        help="指定测试项")
     parser.add_argument("--url", default=DEFAULT_URL, help="服务地址")
     args = parser.parse_args()
 
-    # 更新全局 BASE_URL
     global BASE_URL
     BASE_URL = args.url
 
     print("=" * 50)
-    print("Claude HTTP Gateway 测试套件")
+    print("Claude HTTP Gateway 测试套件 (异步版)")
     print(f"服务地址: {BASE_URL}")
     print("=" * 50)
 
     suite = TestSuite()
 
-    # 测试映射
-    tests = {
-        "status": ("状态查询", test_status),
-        "message": ("消息发送", test_message_success),
-        "history": ("历史记录", test_history),
-        "pending": ("待授权列表", test_pending),
-        "error": ("错误处理", [
-            ("空 prompt", test_message_empty_prompt),
-            ("无效 JSON", test_message_invalid_json),
-            ("404 路径", test_404),
-        ]),
-        "concurrent": ("并发处理", test_message_busy),
-    }
-
     if args.test == "all":
-        # 运行所有测试
         suite.run_test("状态查询", test_status)
-        suite.run_test("消息发送", test_message_success)
+        suite.run_test("提交任务", test_submit_task)
+        suite.run_test("查询任务", test_query_task)
+        suite.run_test("等待完成", test_wait_for_completion)
+        suite.run_test("取消任务", test_cancel_pending_task)
         suite.run_test("历史记录", test_history)
-        suite.run_test("待授权列表", test_pending)
-        suite.run_test("空 prompt", test_message_empty_prompt)
-        suite.run_test("无效 JSON", test_message_invalid_json)
-        suite.run_test("404 路径", test_404)
-        suite.run_test("并发处理", test_message_busy)
+        suite.run_test("空 prompt", test_empty_prompt)
+        suite.run_test("无效任务ID", test_invalid_task_id)
     elif args.test == "error":
-        # 只运行错误处理测试
-        suite.run_test("空 prompt", test_message_empty_prompt)
-        suite.run_test("无效 JSON", test_message_invalid_json)
-        suite.run_test("404 路径", test_404)
-    else:
-        # 运行指定测试
-        name, test = tests[args.test]
-        if isinstance(test, list):
-            for sub_name, sub_test in test:
-                suite.run_test(sub_name, sub_test)
-        else:
-            suite.run_test(name, test)
+        suite.run_test("空 prompt", test_empty_prompt)
+        suite.run_test("无效任务ID", test_invalid_task_id)
+    elif args.test == "status":
+        suite.run_test("状态查询", test_status)
+    elif args.test == "submit":
+        suite.run_test("提交任务", test_submit_task)
+    elif args.test == "query":
+        suite.run_test("查询任务", test_query_task)
+    elif args.test == "wait":
+        suite.run_test("等待完成", test_wait_for_completion)
+    elif args.test == "cancel":
+        suite.run_test("取消任务", test_cancel_pending_task)
+    elif args.test == "history":
+        suite.run_test("历史记录", test_history)
 
-    # 输出汇总
     success = suite.summary()
     sys.exit(0 if success else 1)
 

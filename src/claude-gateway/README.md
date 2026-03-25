@@ -1,25 +1,16 @@
-# Claude HTTP Gateway
+# Claude HTTP Gateway (异步版)
 
-通过 HTTP API 与 Claude Code CLI 交互的网关服务。
+通过 HTTP API 与 Claude Code CLI 交互的网关服务，采用异步任务模型，支持长时间运行的任务。
 
 ## 功能特性
 
-- **HTTP API 接口** - 标准化的 REST API
+- **异步任务模型** - 提交任务立即返回，支持长时间运行
+- **任务状态查询** - 随时查询任务执行状态
+- **任务取消** - 支持取消正在执行的任务
 - **跨平台支持** - Windows (Git Bash) / Linux / macOS
-- **状态查询** - 实时查询 Claude 状态（空闲/处理中/等待授权）
-- **授权流程** - 支持 Claude 权限请求的审批
-- **详细日志** - 请求/响应完整日志输出
-- **对话历史** - 自动记录所有交互
-- **并发控制** - 线程安全的请求处理
 - **零依赖** - 仅使用 Python 标准库
 
 ## 快速开始
-
-### 前置条件
-
-- Python 3.8+
-- Claude Code CLI 已安装并配置
-- Windows 用户需安装 Git Bash
 
 ### 启动服务
 
@@ -30,297 +21,48 @@ cd src/claude-gateway
 python claude-http.py
 
 # 指定工作目录
-python claude-http.py /path/to/your/project
-
-# Windows 示例
-python claude-http.py D:\Projects\my-app
+python claude-http.py /path/to/project
 
 # 查看帮助
 python claude-http.py --help
 ```
 
-**工作目录说明：**
-- 默认使用项目根目录（脚本所在目录的上两级）
-- Claude Code 将在指定的工作目录下执行命令和操作文件
-- 可以通过 `GET /status` 查看当前工作目录
-
-启动成功输出：
-
-```
-============================================================
-Claude Code HTTP Gateway
-============================================================
-[INFO] Git Bash: D:\Program Files (x86)\Git\bin\bash.exe
-[INFO] 工作目录: D:\Coding\Code\Dev\Skills
-[INFO] 测试 Claude CLI...
-[INFO] Claude CLI 测试成功: 服务启动成功...
-[INFO] HTTP 服务器启动在 http://127.0.0.1:9876
-[INFO] API 端点:
-[INFO]   POST /message  发送消息
-[INFO]   POST /approve  授权操作
-[INFO]   GET  /status   获取状态
-[INFO]   GET  /history  获取历史
-[INFO]   GET  /pending  获取待授权列表
-```
-
-## 服务状态说明
-
-| 状态 | 英文 | 说明 |
-|------|------|------|
-| 空闲 | `idle` | 服务空闲，可接受新请求 |
-| 处理中 | `processing` | 正在处理 Claude 请求 |
-| 等待授权 | `waiting_approval` | Claude 请求执行某操作，等待用户授权 |
-| 错误 | `error` | 上次请求出错 |
-
 ---
 
 ## API 使用示例
 
-### GET /status - 获取服务状态
+### POST /message - 提交任务
 
-获取服务当前运行状态。
-
-#### 响应示例
-
-```json
-{
-  "status": "idle",
-  "status_text": "空闲",
-  "is_processing": false,
-  "history_count": 5,
-  "request_count": 5,
-  "platform": "Windows",
-  "git_bash": "D:\\Program Files (x86)\\Git\\bin\\bash.exe",
-  "work_dir": "D:\\Coding\\Code\\Dev\\Skills",
-  "pending_approvals": 0
-}
-```
-
-**处理中时额外字段：**
-
-```json
-{
-  "status": "processing",
-  "status_text": "处理中",
-  "is_processing": true,
-  "current_prompt": "当前处理的问题...",
-  "elapsed_time": 5.23
-}
-```
-
-#### 命令行示例
-
-```bash
-# Git Bash / Linux / macOS
-curl http://127.0.0.1:9876/status
-
-# Windows CMD
-curl http://127.0.0.1:9876/status
-
-# Windows PowerShell
-Invoke-RestMethod -Uri "http://127.0.0.1:9876/status"
-```
-
-#### Python 示例
-
-```python
-import urllib.request
-import json
-
-response = urllib.request.urlopen('http://127.0.0.1:9876/status')
-data = json.loads(response.read().decode('utf-8'))
-print(f"状态: {data['status_text']}")
-print(f"是否处理中: {data['is_processing']}")
-print(f"工作目录: {data['work_dir']}")
-print(f"历史记录数: {data['history_count']}")
-```
-
-#### JavaScript 示例
-
-```javascript
-// Node.js
-const response = await fetch('http://127.0.0.1:9876/status');
-const data = await response.json();
-console.log(`状态: ${data.status_text}`);
-console.log(`是否处理中: ${data.is_processing}`);
-```
-
-```javascript
-// 浏览器 (需要 CORS 支持)
-fetch('http://127.0.0.1:9876/status')
-  .then(res => res.json())
-  .then(data => console.log(data));
-```
-
----
-
-### POST /message - 发送消息
-
-发送消息到 Claude，同步等待响应。
+提交消息到 Claude，立即返回任务 ID（不等待响应）。
 
 #### 请求参数
 
 | 参数 | 类型 | 必填 | 默认值 | 说明 |
 |------|------|------|--------|------|
 | prompt | string | 是 | - | 发送给 Claude 的内容 |
-| timeout | float | 否 | 300.0 | 超时时间（秒） |
+| timeout | float | 否 | 300.0 | 任务超时时间（秒） |
 
 #### 响应示例
 
-**成功响应：**
-
 ```json
 {
-  "status": "success",
-  "response": "Claude 的回复内容",
-  "duration": 5.79
-}
-```
-
-**等待授权：**
-
-```json
-{
-  "status": "waiting_approval",
-  "message": "Claude 请求授权执行操作",
-  "permission": {
-    "type": "permission",
-    "content": "Do you want to allow running bash command?",
-    "detail": "bash",
-    "timestamp": "2026-03-25T14:30:00"
-  },
-  "hint": "使用 POST /approve 授权，或 POST /approve {\"deny\": true} 拒绝"
-}
-```
-
-**服务繁忙：**
-
-```json
-{
-  "status": "busy",
-  "error": "正在处理上一条消息"
+  "task_id": "aaa2377a-b123-4567-89ab-cdef12345678",
+  "status": "pending",
+  "message": "任务已提交",
+  "hint": "使用 GET /task/aaa2377a-b123-4567-89ab-cdef12345678 查询结果"
 }
 ```
 
 #### 命令行示例
-
-> ⚠️ **Windows 用户注意**：Windows CMD 和 PowerShell 对引号处理不同。
 
 ```bash
 # Git Bash / Linux / macOS
 curl -X POST http://127.0.0.1:9876/message \
   -H "Content-Type: application/json" \
-  -d '{"prompt": "介绍一下 Python", "timeout": 60}'
-
-# Windows CMD - 双引号转义
-curl -X POST http://127.0.0.1:9876/message -H "Content-Type: application/json" -d "{\"prompt\": \"介绍一下 Python\", \"timeout\": 60}"
-
-# Windows PowerShell
-Invoke-RestMethod -Uri "http://127.0.0.1:9876/message" -Method POST -ContentType "application/json" -Body '{"prompt": "介绍一下 Python", "timeout": 60}'
-```
-
-#### Python 示例
-
-```python
-import urllib.request
-import json
-
-# 构建请求
-data = json.dumps({
-    "prompt": "用 Python 写一个 Hello World",
-    "timeout": 60
-}).encode('utf-8')
-
-req = urllib.request.Request(
-    'http://127.0.0.1:9876/message',
-    data=data,
-    headers={'Content-Type': 'application/json'}
-)
-
-# 发送请求
-response = urllib.request.urlopen(req, timeout=90)
-result = json.loads(response.read().decode('utf-8'))
-
-if result['status'] == 'success':
-    print(f"响应: {result['response']}")
-    print(f"耗时: {result['duration']}秒")
-elif result['status'] == 'waiting_approval':
-    print(f"需要授权: {result['permission']['content']}")
-else:
-    print(f"错误: {result.get('error')}")
-```
-
-#### JavaScript 示例
-
-```javascript
-// Node.js
-const response = await fetch('http://127.0.0.1:9876/message', {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    prompt: '用 Python 写一个 Hello World',
-    timeout: 60
-  })
-});
-
-const result = await response.json();
-
-if (result.status === 'success') {
-  console.log(`响应: ${result.response}`);
-  console.log(`耗时: ${result.duration}秒`);
-} else if (result.status === 'waiting_approval') {
-  console.log(`需要授权: ${result.permission.content}`);
-}
-```
-
----
-
-### POST /approve - 授权操作
-
-授权或拒绝 Claude 执行待审批的操作。
-
-#### 请求参数
-
-| 参数 | 类型 | 必填 | 默认值 | 说明 |
-|------|------|------|--------|------|
-| deny | bool | 否 | false | true = 拒绝，false/省略 = 授权 |
-| message | string | 否 | - | 附加说明 |
-
-#### 响应示例
-
-```json
-{
-  "status": "success",
-  "action": "approved",
-  "permission": {
-    "type": "permission",
-    "content": "Do you want to allow...",
-    "detail": "bash"
-  },
-  "message": "已授权该操作",
-  "remaining": 0
-}
-```
-
-#### 命令行示例
-
-```bash
-# 授权操作
-# Git Bash / Linux / macOS
-curl -X POST http://127.0.0.1:9876/approve -H "Content-Type: application/json" -d '{}'
+  -d '{"prompt": "介绍一下 Python", "timeout": 300}'
 
 # Windows CMD
-curl -X POST http://127.0.0.1:9876/approve -H "Content-Type: application/json" -d "{}"
-
-# Windows PowerShell
-Invoke-RestMethod -Uri "http://127.0.0.1:9876/approve" -Method POST -ContentType "application/json" -Body '{}'
-
-# 拒绝操作
-# Git Bash / Linux / macOS
-curl -X POST http://127.0.0.1:9876/approve -H "Content-Type: application/json" -d '{"deny": true}'
-
-# Windows CMD
-curl -X POST http://127.0.0.1:9876/approve -H "Content-Type: application/json" -d "{\"deny\": true}"
+curl -X POST http://127.0.0.1:9876/message -H "Content-Type: application/json" -d "{\"prompt\": \"介绍一下 Python\", \"timeout\": 300}"
 ```
 
 #### Python 示例
@@ -329,307 +71,292 @@ curl -X POST http://127.0.0.1:9876/approve -H "Content-Type: application/json" -
 import urllib.request
 import json
 
-# 授权操作
-data = json.dumps({}).encode('utf-8')
-req = urllib.request.Request(
-    'http://127.0.0.1:9876/approve',
-    data=data,
-    headers={'Content-Type': 'application/json'}
-)
-response = urllib.request.urlopen(req)
-print(json.loads(response.read().decode('utf-8')))
-
-# 拒绝操作
-data = json.dumps({"deny": True}).encode('utf-8')
-req = urllib.request.Request(
-    'http://127.0.0.1:9876/approve',
-    data=data,
-    headers={'Content-Type': 'application/json'}
-)
-response = urllib.request.urlopen(req)
-print(json.loads(response.read().decode('utf-8')))
-```
-
----
-
-### GET /pending - 获取待授权列表
-
-获取当前等待授权的操作列表。
-
-#### 响应示例
-
-```json
-{
-  "status": "success",
-  "count": 1,
-  "pending": [
-    {
-      "type": "permission",
-      "content": "Do you want to allow running bash command?",
-      "detail": "bash",
-      "timestamp": "2026-03-25T14:30:00"
-    }
-  ]
-}
-```
-
-#### 命令行示例
-
-```bash
-# 所有平台通用
-curl http://127.0.0.1:9876/pending
-
-# Windows PowerShell
-Invoke-RestMethod -Uri "http://127.0.0.1:9876/pending"
-```
-
-#### Python 示例
-
-```python
-import urllib.request
-import json
-
-response = urllib.request.urlopen('http://127.0.0.1:9876/pending')
-data = json.loads(response.read().decode('utf-8'))
-
-print(f"待授权数量: {data['count']}")
-for item in data['pending']:
-    print(f"  - {item['content']}")
-```
-
----
-
-### GET /history - 获取对话历史
-
-获取所有对话历史记录。
-
-#### 响应示例
-
-```json
-{
-  "status": "success",
-  "count": 2,
-  "history": [
-    {
-      "id": 1,
-      "timestamp": "2026-03-25T14:30:00.123456",
-      "prompt": "你好",
-      "response": "你好！有什么可以帮助你的？",
-      "duration": 3.5
-    },
-    {
-      "id": 2,
-      "timestamp": "2026-03-25T14:31:00.654321",
-      "prompt": "介绍一下 Python",
-      "response": "Python 是一种高级编程语言...",
-      "duration": 5.79
-    }
-  ]
-}
-```
-
-#### 命令行示例
-
-```bash
-# 所有平台通用
-curl http://127.0.0.1:9876/history
-
-# Windows PowerShell
-Invoke-RestMethod -Uri "http://127.0.0.1:9876/history"
-```
-
-#### Python 示例
-
-```python
-import urllib.request
-import json
-
-response = urllib.request.urlopen('http://127.0.0.1:9876/history')
-data = json.loads(response.read().decode('utf-8'))
-
-print(f"历史记录数: {data['count']}")
-for entry in data['history']:
-    print(f"[{entry['id']}] {entry['prompt']}")
-    print(f"    响应: {entry['response'][:50]}...")
-    print(f"    耗时: {entry['duration']}秒")
-```
-
----
-
-## 完整使用场景
-
-### 场景 1：简单问答
-
-```python
-import urllib.request
-import json
-
-def ask_claude(question):
-    """向 Claude 提问"""
-    data = json.dumps({"prompt": question, "timeout": 60}).encode('utf-8')
+def submit_task(prompt, timeout=300):
+    """提交任务"""
+    data = json.dumps({"prompt": prompt, "timeout": timeout}).encode('utf-8')
     req = urllib.request.Request(
         'http://127.0.0.1:9876/message',
         data=data,
         headers={'Content-Type': 'application/json'}
     )
-    response = urllib.request.urlopen(req, timeout=90)
-    result = json.loads(response.read().decode('utf-8'))
-    return result
+    response = urllib.request.urlopen(req, timeout=10)
+    return json.loads(response.read().decode('utf-8'))
 
-# 使用
-result = ask_claude("什么是机器学习？")
-print(result['response'])
+# 提交任务
+result = submit_task("用 Python 写一个 HTTP 服务器")
+print(f"任务ID: {result['task_id']}")
 ```
 
-### 场景 2：带状态检查的请求
+---
+
+### GET /task/{task_id} - 查询任务
+
+查询任务的执行状态和结果。
+
+#### 任务状态
+
+| 状态 | 说明 |
+|------|------|
+| `pending` | 等待执行 |
+| `running` | 执行中 |
+| `completed` | 已完成 |
+| `failed` | 执行失败 |
+| `cancelled` | 已取消 |
+
+#### 响应示例
+
+**执行中：**
+
+```json
+{
+  "task_id": "aaa2377a-b123-4567-89ab-cdef12345678",
+  "prompt": "介绍一下 Python",
+  "status": "running",
+  "created_at": "2026-03-26T10:30:00.123456",
+  "started_at": "2026-03-26T10:30:00.234567"
+}
+```
+
+**已完成：**
+
+```json
+{
+  "task_id": "aaa2377a-b123-4567-89ab-cdef12345678",
+  "prompt": "介绍一下 Python",
+  "status": "completed",
+  "created_at": "2026-03-26T10:30:00.123456",
+  "started_at": "2026-03-26T10:30:00.234567",
+  "completed_at": "2026-03-26T10:30:10.345678",
+  "duration": 10.11,
+  "response": "Python 是一种高级编程语言..."
+}
+```
+
+**失败：**
+
+```json
+{
+  "task_id": "aaa2377a-b123-4567-89ab-cdef12345678",
+  "prompt": "...",
+  "status": "failed",
+  "error": "执行超时",
+  "duration": 300.0
+}
+```
+
+#### 命令行示例
+
+```bash
+curl http://127.0.0.1:9876/task/aaa2377a-b123-4567-89ab-cdef12345678
+```
+
+#### Python 示例
 
 ```python
 import urllib.request
 import json
 import time
 
-def safe_ask(question, max_wait=30):
-    """安全提问，检查服务状态"""
-    # 先检查状态
-    response = urllib.request.urlopen('http://127.0.0.1:9876/status')
-    status = json.loads(response.read().decode('utf-8'))
+def wait_for_task(task_id, poll_interval=1.0, max_wait=600):
+    """等待任务完成"""
+    start = time.time()
+    while time.time() - start < max_wait:
+        response = urllib.request.urlopen(
+            f'http://127.0.0.1:9876/task/{task_id}',
+            timeout=10
+        )
+        data = json.loads(response.read().decode('utf-8'))
+        status = data.get('status', '')
 
-    if status['is_processing']:
-        print(f"服务忙碌，当前处理: {status.get('current_prompt', '')}")
-        return None
+        if status in ('completed', 'failed', 'cancelled'):
+            return data
 
-    # 发送请求
-    data = json.dumps({"prompt": question, "timeout": max_wait}).encode('utf-8')
-    req = urllib.request.Request(
-        'http://127.0.0.1:9876/message',
-        data=data,
-        headers={'Content-Type': 'application/json'}
-    )
-    response = urllib.request.urlopen(req, timeout=max_wait + 30)
-    return json.loads(response.read().decode('utf-8'))
+        time.sleep(poll_interval)
 
-# 使用
-result = safe_ask("解释一下 REST API")
-if result and result['status'] == 'success':
-    print(result['response'])
+    return {"error": "等待超时", "status": "timeout"}
+
+# 提交并等待完成
+task = submit_task("写一个冒泡排序")
+result = wait_for_task(task['task_id'])
+print(f"状态: {result['status']}")
+print(f"响应: {result.get('response', result.get('error'))}")
 ```
 
-### 场景 3：处理授权流程
+---
+
+### POST /task/{task_id}/cancel - 取消任务
+
+取消正在执行或等待中的任务。
+
+#### 响应示例
+
+```json
+{
+  "task_id": "aaa2377a-b123-4567-89ab-cdef12345678",
+  "status": "cancelled",
+  "message": "任务已取消"
+}
+```
+
+#### 命令行示例
+
+```bash
+# Git Bash / Linux / macOS
+curl -X POST http://127.0.0.1:9876/task/aaa2377a-b123-4567-89ab-cdef12345678/cancel
+
+# Windows CMD
+curl -X POST http://127.0.0.1:9876/task/aaa2377a-b123-4567-89ab-cdef12345678/cancel
+```
+
+---
+
+### GET /status - 获取服务状态
+
+#### 响应示例
+
+```json
+{
+  "status": "running",
+  "work_dir": "D:\\Coding\\Code\\Dev\\Skills",
+  "platform": "Windows",
+  "git_bash": "D:\\Program Files (x86)\\Git\\bin\\bash.exe",
+  "max_workers": 1,
+  "queue_size": 0,
+  "pending_tasks": 0,
+  "running_tasks": 1,
+  "total_tasks": 5,
+  "history_count": 3
+}
+```
+
+---
+
+### GET /history - 获取历史记录
+
+#### 响应示例
+
+```json
+{
+  "history": [
+    {
+      "id": 1,
+      "task_id": "aaa2377a-b123-4567-89ab-cdef12345678",
+      "timestamp": "2026-03-26T10:30:00.123456",
+      "prompt": "介绍一下 Python",
+      "response": "Python 是一种高级编程语言...",
+      "duration": 10.11
+    }
+  ],
+  "count": 1
+}
+```
+
+---
+
+## 完整使用场景
+
+### 场景 1：异步提交 + 轮询结果
 
 ```python
 import urllib.request
 import json
+import time
 
-def send_with_approval(prompt):
-    """发送请求并处理授权"""
-    # 发送消息
-    data = json.dumps({"prompt": prompt, "timeout": 60}).encode('utf-8')
+def ask_claude(prompt, timeout=300, poll_interval=1.0):
+    """异步提问，返回结果"""
+    # 提交任务
+    data = json.dumps({"prompt": prompt, "timeout": timeout}).encode('utf-8')
     req = urllib.request.Request(
         'http://127.0.0.1:9876/message',
         data=data,
         headers={'Content-Type': 'application/json'}
     )
-    response = urllib.request.urlopen(req, timeout=90)
-    result = json.loads(response.read().decode('utf-8'))
+    response = urllib.request.urlopen(req, timeout=10)
+    task = json.loads(response.read().decode('utf-8'))
+    task_id = task['task_id']
 
-    # 检查是否需要授权
-    if result['status'] == 'waiting_approval':
-        print(f"Claude 请求授权: {result['permission']['content']}")
+    # 轮询结果
+    start = time.time()
+    while time.time() - start < timeout + 30:
+        response = urllib.request.urlopen(
+            f'http://127.0.0.1:9876/task/{task_id}',
+            timeout=10
+        )
+        data = json.loads(response.read().decode('utf-8'))
 
-        # 用户确认
-        choice = input("授权? (y/n): ")
-        if choice.lower() == 'y':
-            # 授权
-            approve_data = json.dumps({}).encode('utf-8')
-            approve_req = urllib.request.Request(
-                'http://127.0.0.1:9876/approve',
-                data=approve_data,
-                headers={'Content-Type': 'application/json'}
-            )
-            urllib.request.urlopen(approve_req)
-            print("已授权")
-        else:
-            # 拒绝
-            approve_data = json.dumps({"deny": True}).encode('utf-8')
-            approve_req = urllib.request.Request(
-                'http://127.0.0.1:9876/approve',
-                data=approve_data,
-                headers={'Content-Type': 'application/json'}
-            )
-            urllib.request.urlopen(approve_req)
-            print("已拒绝")
+        if data['status'] == 'completed':
+            return data['response']
+        elif data['status'] in ('failed', 'cancelled'):
+            raise Exception(data.get('error', '任务失败'))
 
-    return result
+        time.sleep(poll_interval)
+
+    raise Exception("等待超时")
 
 # 使用
-result = send_with_approval("帮我创建一个文件 test.txt")
+try:
+    result = ask_claude("写一个 Python 脚本处理 CSV 文件")
+    print(result)
+except Exception as e:
+    print(f"错误: {e}")
 ```
 
----
+### 场景 2：提交多个任务
 
-## 服务端日志
+```python
+import urllib.request
+import json
+import time
 
-服务运行时会输出详细的请求/响应日志：
+def submit_multiple(prompts):
+    """批量提交任务"""
+    task_ids = []
+    for prompt in prompts:
+        data = json.dumps({"prompt": prompt, "timeout": 300}).encode('utf-8')
+        req = urllib.request.Request(
+            'http://127.0.0.1:9876/message',
+            data=data,
+            headers={'Content-Type': 'application/json'}
+        )
+        response = urllib.request.urlopen(req, timeout=10)
+        task = json.loads(response.read().decode('utf-8'))
+        task_ids.append(task['task_id'])
+        print(f"提交: {prompt[:30]}... -> {task['task_id'][:8]}")
+    return task_ids
 
-```
-[14:30:15.123] [HTTP] <-- POST /message
-[14:30:15.124] [HTTP]     Body: {"prompt": "你好", "timeout": 60}
-[14:30:15.125] [REQUEST] 收到请求: 你好
-[14:30:20.456] [RESPONSE] 响应完成 (5.33s): 你好！有什么可以帮助你的？
-[14:30:20.457] [HTTP] --> 200
-[14:30:20.457] [HTTP]     Response: {"response": "你好！...", "status": "success", ...}
-```
+def collect_results(task_ids, max_wait=600):
+    """收集结果"""
+    results = {}
+    start = time.time()
 
-**日志级别：**
+    while task_ids and time.time() - start < max_wait:
+        for task_id in task_ids[:]:
+            response = urllib.request.urlopen(
+                f'http://127.0.0.1:9876/task/{task_id}',
+                timeout=10
+            )
+            data = json.loads(response.read().decode('utf-8'))
 
-| 级别 | 说明 |
-|------|------|
-| HTTP | HTTP 请求/响应 |
-| REQUEST | 收到 Claude 请求 |
-| RESPONSE | Claude 响应完成 |
-| PENDING | 检测到权限请求 |
-| APPROVE | 授权操作 |
-| ERROR | 错误信息 |
+            if data['status'] in ('completed', 'failed', 'cancelled'):
+                results[task_id] = data
+                task_ids.remove(task_id)
+                print(f"完成: {task_id[:8]} ({data['status']})")
 
----
+        time.sleep(1.0)
 
-## 授权流程
+    return results
 
-当 Claude 需要执行敏感操作（如运行命令、读写文件）时：
+# 使用
+prompts = [
+    "解释什么是 REST API",
+    "写一个冒泡排序",
+    "Python 如何读取 JSON 文件"
+]
+task_ids = submit_multiple(prompts)
+results = collect_results(task_ids)
 
-```
-┌──────────────┐     POST /message      ┌──────────────┐
-│    Client    │ ───────────────────▶   │   Gateway    │
-└──────────────┘                        └──────────────┘
-                                              │
-                                              ▼
-                                        ┌──────────────┐
-                                        │  Claude CLI  │
-                                        └──────────────┘
-                                              │
-                                              │ 请求授权
-                                              ▼
-┌──────────────┐     status: waiting_approval  │
-│    Client    │ ◀─────────────────────────────┘
-└──────────────┘
-       │
-       │ GET /pending (查看详情)
-       ▼
-┌──────────────┐     POST /approve           ┌──────────────┐
-│    Client    │ ───────────────────────▶    │   Gateway    │
-└──────────────┘                             └──────────────┘
-                                                   │
-                                                   │ 继续执行
-                                                   ▼
-                                             ┌──────────────┐
-                                             │  Claude CLI  │
-                                             └──────────────┘
-                                                   │
-                                                   │ 最终响应
-                                                   ▼
-┌──────────────┐     status: success        ┌──────────────┐
-│    Client    │ ◀─────────────────────────│   Gateway    │
-└──────────────┘                            └──────────────┘
+for task_id, result in results.items():
+    print(f"\n{task_id[:8]}: {result.get('response', result.get('error'))[:100]}...")
 ```
 
 ---
@@ -638,38 +365,31 @@ result = send_with_approval("帮我创建一个文件 test.txt")
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Claude HTTP Gateway                          │
-│                      (端口: 9876)                                │
+│                  Claude HTTP Gateway (异步版)                    │
+│                       (端口: 9876)                               │
 ├─────────────────────────────────────────────────────────────────┤
 │                                                                  │
-│   HTTP Request ──▶ RequestHandler ──▶ ClaudeGateway             │
-│         │                                      │                 │
-│         │                                      │                 │
-│         ▼                                      ▼                 │
-│   ┌──────────┐                        ┌───────────────┐         │
-│   │  日志    │                        │ 状态管理      │         │
-│   │  记录    │                        │ - idle        │         │
-│   └──────────┘                        │ - processing  │         │
-│                                       │ - waiting_    │         │
-│                                       │   approval    │         │
-│                                       │ - error       │         │
-│                                       └───────────────┘         │
-│                                              │                   │
-│                          ┌──────────────────┼──────────────────┐│
-│                          │                  │                  ││
-│                          ▼                  ▼                  ││
-│                     Windows            Linux/Mac               ││
-│                          │                  │                  ││
-│                          ▼                  ▼                  ││
-│                    Git Bash            直接管道                ││
-│                    管道模式            stdin/stdout            ││
-│                          │                  │                  ││
-│                          └────────┬─────────┘                  ││
-│                                   ▼                             ││
-│                           Claude CLI                           ││
-│                          (claude 命令)                         ││
+│  POST /message ──▶ 任务队列 ──▶ 工作线程 ──▶ Claude CLI         │
+│        │              │            │              │              │
+│        │              │            │              │              │
+│        ▼              ▼            ▼              ▼              │
+│   立即返回        Task 对象    subprocess.Popen   响应存储       │
+│   task_id                                                      │
+│                                                                  │
+│  GET /task/{id} ─────────────────────────────────▶ 查询状态     │
+│                                                                  │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+**同步 vs 异步对比：**
+
+| 特性 | 同步模式 | 异步模式 |
+|------|----------|----------|
+| 请求响应 | 等待完成才返回 | 立即返回 task_id |
+| 超时风险 | HTTP 请求超时 | 无超时风险 |
+| 长时间任务 | 可能超时 | 支持任意时长 |
+| 取消任务 | 不支持 | 支持 |
+| 并发 | 串行 | 队列 + 工作线程 |
 
 ---
 
@@ -678,47 +398,9 @@ result = send_with_approval("帮我创建一个文件 test.txt")
 | HTTP 状态码 | 说明 |
 |-------------|------|
 | 200 | 请求成功 |
-| 400 | 请求参数错误（空 prompt、无效 JSON） |
-| 404 | 未知 API 路径 |
-| 500 | Claude CLI 执行失败或响应超时 |
-
----
-
-## 配置
-
-### 端口配置
-
-默认端口 `9876`，可通过修改代码中的 `port` 参数更改：
-
-```python
-def run_http_server(gateway: ClaudeGateway, port: 9876):
-    ...
-```
-
-### Git Bash 路径
-
-Windows 平台自动检测以下路径：
-
-```python
-possible_paths = [
-    r"D:\Program Files (x86)\Git\bin\bash.exe",
-    r"D:\Program Files\Git\bin\bash.exe",
-    r"C:\Program Files\Git\bin\bash.exe",
-    r"C:\Program Files (x86)\Git\bin\bash.exe",
-    r"%LOCALAPPDATA%\Programs\Git\bin\bash.exe",
-    r"%PROGRAMFILES%\Git\bin\bash.exe",
-    r"%PROGRAMFILES(X86)%\Git\bin\bash.exe",
-]
-```
-
----
-
-## 限制
-
-- **无会话保持** - 每次请求独立，不保持对话上下文
-- **串行处理** - 并发请求排队处理，非并行
-- **内存历史** - 历史记录存储在内存，重启后丢失
-- **单机部署** - 不支持分布式部署
+| 400 | 请求参数错误 |
+| 404 | 任务不存在或未知路径 |
+| 500 | 服务器内部错误 |
 
 ---
 
@@ -740,54 +422,35 @@ src/claude-gateway/
 python test_gateway.py
 
 # 运行指定测试
-python test_gateway.py --test status      # 状态查询
-python test_gateway.py --test message     # 消息发送
-python test_gateway.py --test error       # 错误处理
-
-# 指定服务地址
-python test_gateway.py --url http://127.0.0.1:9876
+python test_gateway.py --test submit   # 提交任务
+python test_gateway.py --test query    # 查询任务
+python test_gateway.py --test wait     # 等待完成
+python test_gateway.py --test cancel   # 取消任务
 ```
 
 ---
 
 ## 常见问题
 
-### Q: Windows 上启动失败，提示找不到 Git Bash？
+### Q: 为什么改用异步模式？
 
-确保 Git for Windows 已安装，或将 Git Bash 路径添加到 `possible_paths` 列表中。
+同步模式下，长时间任务（如代码生成、复杂分析）会导致 HTTP 请求超时。异步模式提交任务后立即返回，通过轮询查询结果，避免超时问题。
 
-### Q: 请求超时怎么办？
+### Q: 如何知道任务完成了？
 
-增加 `timeout` 参数值，或检查网络连接和 Claude API 状态。
+使用 `GET /task/{task_id}` 查询，当 `status` 为 `completed` 时表示完成。
 
-### Q: 如何查看日志？
+### Q: 任务可以运行多长时间？
 
-服务运行时会在控制台输出请求日志：
+由提交任务时的 `timeout` 参数控制，默认 300 秒。可以设置更长的超时时间，如 `"timeout": 3600`（1小时）。
 
-```
-[14:30:15.123] [HTTP] <-- POST /message
-[14:30:15.124] [HTTP]     Body: {"prompt": "你好", "timeout": 60}
-```
+### Q: 如何取消正在执行的任务？
 
-### Q: 如何授权 Claude 的操作？
+调用 `POST /task/{task_id}/cancel`。
 
-1. 发送请求后，如果返回 `status: waiting_approval`
-2. 调用 `GET /pending` 查看待授权操作详情
-3. 调用 `POST /approve` 授权或 `POST /approve {"deny": true}` 拒绝
+### Q: 支持并行执行多个任务吗？
 
-### Q: 支持流式响应吗？
-
-当前版本不支持流式响应，所有响应都是完整返回。
-
-### Q: Windows CMD 中 curl 命令报错怎么办？
-
-Windows CMD 对引号处理不同，请使用：
-- 双引号包裹整个 JSON
-- 内部双引号用 `\"` 转义
-
-```cmd
-curl -X POST http://127.0.0.1:9876/message -H "Content-Type: application/json" -d "{\"prompt\": \"你好\"}"
-```
+当前版本 `max_workers=1`，任务串行执行。可以修改代码增加工作线程数。
 
 ---
 

@@ -26,7 +26,54 @@
       "Bash(timeout 60 claude)",
       "Bash(pip show:*)",
       "Bash(pip install:*)",
-      "Bash(python -c \":*)"
+      "Bash(python -c \":*)",
+      "Bash(python D:/Coding/Code/Dev/Skills/tools/hooks/notify_hook.py)",
+      "Bash(sshpass:*)",
+      "Bash(curl:*)",
+      "Bash(for i:*)",
+      "Bash(do)",
+      "Bash(echo \"=== Poll $i ===\")",
+      "Bash(done)",
+      "Bash(__NEW_LINE_4770486a667ed684__ echo:*)",
+      "Bash(powershell -Command \"Invoke-RestMethod -Uri ''http://127.0.0.1:9876/message'' -Method POST -ContentType ''application/json'' -Body ''{\"\"prompt\"\": \"\"hello\"\", \"\"timeout\"\": 30}'' | ConvertTo-Json\")",
+      "Bash(__NEW_LINE_558c3d48f317ef84__ echo:*)",
+      "Bash(echo \"Exit code: $?\")",
+      "Bash(curl -X POST http://127.0.0.1:9876/message -H \"Content-Type: application/json\" -d \"{\"\"prompt\"\": \"\"test\"\", \"\"timeout\"\": 30}\")",
+      "Bash(__NEW_LINE_d5fd7d7d32aa035e__ sleep:*)",
+      "Bash(__NEW_LINE_5da1966c1fc33f9d__ echo:*)",
+      "Skill(update-config)",
+      "Bash(echo \"=== 发送 curl 请求 ===\" curl -X POST http://127.0.0.1:9876/message -H \"Content-Type: application/json\" -d \"{\"\"prompt\"\": \"\"hello\"\", \"\"timeout\"\": 30}\" echo \"\" __NEW_LINE_32e4834a98f70ea6__ sleep 3 echo \"\" echo \"=== 查询历史 ===\" curl -s http://127.0.0.1:9876/history)",
+      "Bash(__NEW_LINE_709c353746a0abac__ echo:*)",
+      "Bash(__NEW_LINE_e95fb03b5545eaaf__ sleep:*)",
+      "Bash(__NEW_LINE_e95fb03b5545eaaf__ echo:*)",
+      "Bash(taskkill /F /FI 'WINDOWTITLE eq claude-http*')",
+      "Bash(netstat -ano)",
+      "Bash(taskkill:*)",
+      "Bash(powershell -Command \"Stop-Process -Id 220788 -Force\")"
+    ]
+  },
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python D:/Coding/Code/Dev/Skills/tools/hooks/notify_hook.py",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "TaskCompleted": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python D:/Coding/Code/Dev/Skills/tools/hooks/notify_hook.py",
+            "timeout": 15
+          }
+        ]
+      }
     ]
   },
   "skills": {
