@@ -49,7 +49,18 @@
       "Bash(taskkill /F /FI 'WINDOWTITLE eq claude-http*')",
       "Bash(netstat -ano)",
       "Bash(taskkill:*)",
-      "Bash(powershell -Command \"Stop-Process -Id 220788 -Force\")"
+      "Bash(powershell -Command \"Stop-Process -Id 220788 -Force\")",
+      "WebFetch(domain:docs.anthropic.com)",
+      "WebFetch(domain:zhuanlan.zhihu.com)",
+      "Read(//c/Users/m30020610/.claude/**)",
+      "Read(//c/Users/m30020610/AppData/Local/**)",
+      "Bash(head -5 ~/.claude/history.jsonl 2>/dev/null | python3 -c \"import sys,json; [print\\(json.dumps\\(json.loads\\(l\\), indent=2\\)[:500]\\) for l in sys.stdin]\" 2>/dev/null || echo \"No history file or parse error\")",
+      "Bash(find ~/.claude/projects/D--m30020610-WorkSpace-Skills/ -name \"*.jsonl\" 2>/dev/null | head -5)",
+      "Bash(head -3 ~/.claude/projects/D--m30020610-WorkSpace-Skills/122bc2a7-c863-4a4b-9183-0b0b67c4d802.jsonl 2>/dev/null | python3 -c \"import sys,json; [print\\(json.dumps\\(json.loads\\(l\\), indent=2\\)[:800]\\) for l in sys.stdin]\" 2>/dev/null)",
+      "Bash(python3 << 'EOF'\nimport re\nimport html\n\nwith open\\(r'C:\\\\Users\\\\m30020610\\\\Downloads\\\\认知重建：Speckit 用了三个月，我放弃了——走出工具很强但用不好的困境 - 知乎.html', 'r', encoding='utf-8'\\) as f:\n    content = f.read\\(\\)\n\n# 提取 js-initialData 中的内容\nmatch = re.search\\(r'js-initialData[^>]*>\\([^<]+\\)', content\\)\nif match:\n    import json\n    data = json.loads\\(match.group\\(1\\)\\)\n    article = data.get\\('initialState', {}\\).get\\('article', {}\\)\n    for aid, adata in article.items\\(\\):\n        if 'content' in adata:\n            text = adata['content']\n            # 移除HTML标签\n            text = re.sub\\(r'<[^>]+>', '\\\\n', text\\)\n            text = html.unescape\\(text\\)\n            text = re.sub\\(r'\\\\n+', '\\\\n', text\\)\n            print\\(text[:15000]\\)\n            break\nEOF)",
+      "Bash(python3 << 'PYEOF'\nimport re\nimport html\nimport json\n\nfilepath = r'C:\\\\Users\\\\m30020610\\\\Downloads\\\\认知重建：Speckit 用了三个月，我放弃了——走出工具很强但用不好的困境 - 知乎.html'\nwith open\\(filepath, 'r', encoding='utf-8'\\) as f:\n    content = f.read\\(\\)\n\n# 方法1: 尝试提取 js-initialData\nmatch = re.search\\(r'<script id=\"js-initialData\"[^>]*>\\(.+?\\)</script>', content, re.DOTALL\\)\nif match:\n    try:\n        data = json.loads\\(match.group\\(1\\)\\)\n        print\\(\"=== Found js-initialData ===\"\\)\n        articles = data.get\\('initialState', {}\\).get\\('article', {}\\)\n        for aid, adata in articles.items\\(\\):\n            if 'content' in adata:\n                text = adata['content']\n                text = re.sub\\(r'<[^>]+>', '\\\\n', text\\)\n                text = html.unescape\\(text\\)\n                text = re.sub\\(r'\\\\n\\\\s*\\\\n', '\\\\n\\\\n', text\\)\n                print\\(text[:12000]\\)\n                break\n    except Exception as e:\n        print\\(f\"JSON parse error: {e}\"\\)\n\n# 方法2: 直接提取 article 内容\nif not match:\n    print\\(\"=== Try article tag ===\"\\)\n    article_match = re.search\\(r'<article[^>]*class=\"[^\"]*Post-Main[^\"]*\"[^>]*>\\(.+?\\)</article>', content, re.DOTALL\\)\n    if article_match:\n        text = article_match.group\\(1\\)\n        text = re.sub\\(r'<[^>]+>', '\\\\n', text\\)\n        text = html.unescape\\(text\\)\n        text = re.sub\\(r'\\\\n\\\\s*\\\\n', '\\\\n\\\\n', text\\)\n        print\\(text[:12000]\\)\nPYEOF)",
+      "Bash(echo \"说 测试成功\" | claude -p --resume 122bc2a7-c863-4a4b-9183-0b0b67c4d802 --output-format json 2>&1 | head -50)",
+      "WebFetch(domain:docs.cloud.google.com)"
     ]
   },
   "hooks": {
